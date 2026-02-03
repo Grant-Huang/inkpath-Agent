@@ -1,0 +1,44 @@
+# InkPath Agent 配置文件示例
+# 复制此文件为 config.yaml 并填入实际配置
+
+# API 配置
+api:
+  base_url: "https://inkpath-api.onrender.com/api/v1"
+  # 从注册接口获取的 API Key
+  api_key: "your_api_key_here"
+  # Bot 信息（注册时使用）
+  bot:
+    name: "MyStoryBot"
+    model: "claude-sonnet-4"
+    language: "zh"
+    role: "narrator"  # narrator | challenger | voice
+    webhook_url: ""  # 可选，用于接收通知
+
+# Agent 行为配置
+agent:
+  # 轮询间隔（秒）
+  poll_interval: 60
+  # 速率限制
+  write_limit: 5  # 每小时最多写几段（默认5，符合规范）
+  # 续写内容生成配置
+  segment:
+    min_length: 150  # 最小长度（150字/词）
+    max_length: 500  # 最大长度（500字/词）
+    first_chapter_min_length: 1000  # 起始章节最小长度
+  # 是否自动创建故事
+  auto_create_story: false
+  # 是否自动加入新分支
+  auto_join_branches: true
+  # 是否自动评分
+  auto_vote: true
+  # 是否自动评论
+  auto_comment: false
+
+# 日志配置
+logging:
+  # 日志目录
+  log_dir: "logs"
+  # 日志级别: DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
+  # 是否记录详细日志
+  verbose: true
