@@ -45,15 +45,20 @@ class InkPathAgent:
         
         self.api_base = self.config['api']['base_url']
         self.api_key = api_key or self.config['api'].get('api_key', '')
+        self.poll_interval = self.config['agent'].get('poll_interval', 60)
         
-        # 初始化规范管理器
+        # API 需要 /api/v1 前缀，但 .well-known 在根路径
+        self.api_base_v1 = f"{self.api_base}/api/v1"
+        self.spec_base_url = self.api_base  # .well-known 在根路径
+        
+        # 初始化规范管理器（使用根路径）
         self.spec_manager = SpecManager(
-            base_url=self.api_base,
+            base_url=self.spec_base_url,
             cache_dir=str(Path(__file__).parent / '.cache')
         )
         
-        # 初始化 API 客户端
-        self.client = InkPathClient(self.api_base, self.api_key)
+        # 初始化 API 客户端（使用 /api/v1 前缀）
+        self.client = InkPathClient(self.api_base_v1, self.api_key)
         self.client.set_api_key(self.api_key)
         
         # 状态
@@ -256,6 +261,18 @@ class InkPathAgent:
             # 生成内容（应调用LLM）
             content = self._generate_segment(branch)
             
+            # 反思审查
+            reflection = self._reflect_content(content, branch)
+            if not reflection['passed']:
+                print(f"   ⚠️ 反思未通过: {reflection['issues']}")
+                # 尝试修改
+                content = self._improve_content(content, reflection, branch)
+                # 再次反思
+                reflection = self._reflect_content(content, branch)
+                if not reflection['passed']:
+                    print(f"   ❌ 内容质量不达标，跳过")
+                    return False
+            
             # 验证内容
             if not self._validate_content(content):
                 return False
@@ -286,6 +303,12 @@ class InkPathAgent:
         try:
             # 生成故事（应调用LLM）
             story = self._generate_story()
+            
+            # 反思审查故事背景
+            reflection = self._reflect_content(story['background'], story)
+            if not reflection['passed']:
+                print(f"   ⚠️ 故事背景反思未通过: {reflection['issues']}")
+                story['background'] = self._improve_content(story['background'], reflection, story)
             
             result = self.client.create_story(
                 title=story['title'],
@@ -362,6 +385,111 @@ class InkPathAgent:
         ]
         return random.choice(templates)
     
+    # ===== 反思机制 =====
+    
+    def _reflect_content(self, content: str, context: dict = None) -> dict:
+        """
+        反思审查内容
+        
+        Returns:
+            {
+                'passed': bool,
+                'scores': {维度: 分数},
+                'issues': [问题列表],
+                'suggestions': [修改建议]
+            }
+        """
+        issues = []
+        scores = {
+            'depth': 7,        # 内容深度
+            'richness': 7,     # 语言丰富度
+            'progress': 7,      # 剧情推进
+            'coherence': 7,    # 连贯性
+            'creativity': 7    # 创意价值
+        }
+        
+        # 1. 检查长度
+        if len(content) < 100:
+            issues.append("内容过于简短，缺乏实质")
+            scores['depth'] -= 2
+            scores['progress'] -= 2
+        
+        # 2. 检查重复
+        words = content.split()
+        if len(words) > 10:
+            unique_ratio = len(set(words)) / len(words)
+            if unique_ratio < 0.5:
+                issues.append("语言重复度过高")
+                scores['richness'] -= 3
+        
+        # 3. 检查琐碎内容
+        trivial_words = ['然后', '接着', '之后', '这时', '就在这时']
+        trivial_count = sum(1 for w in trivial_words if w in content)
+        if trivial_count > 3:
+            issues.append("过渡词使用过多，内容琐碎")
+            scores['progress'] -= 1
+            scores['depth'] -= 1
+        
+        # 4. 检查是否过于简单（缺少描写）
+        if not any(c in content for c in ['，', '。', '！', '？', '：']):
+            if len(content) > 50:
+                issues.append("句子结构过于单一")
+                scores['richness'] -= 2
+        
+        # 5. 检查低俗内容（关键词过滤）
+        forbidden = ['暴力', '血腥', '色情', '死亡', '杀死']
+        if any(w in content for w in forbidden):
+            issues.append("可能包含敏感内容，请谨慎")
+            scores['creativity'] -= 2
+        
+        # 检查分数
+        min_score = min(scores.values())
+        passed = min_score >= 6 and len(issues) <= 2
+        
+        return {
+            'passed': passed,
+            'scores': scores,
+            'issues': issues,
+            'suggestions': self._generate_suggestions(issues, scores)
+        }
+    
+    def _generate_suggestions(self, issues: list, scores: dict) -> list:
+        """生成修改建议"""
+        suggestions = []
+        
+        if scores['depth'] < 6:
+            suggestions.append("增加细节描写和内心活动")
+        
+        if scores['richness'] < 6:
+            suggestions.append("使用更丰富的词汇和句式")
+        
+        if scores['progress'] < 6:
+            suggestions.append("推动剧情发展，增加冲突或悬念")
+        
+        if scores['coherence'] < 6:
+            suggestions.append("加强与前文的联系")
+        
+        if scores['creativity'] < 6:
+            suggestions.append("提供新的视角或信息")
+        
+        return suggestions
+    
+    def _improve_content(self, content: str, reflection: dict, context: dict = None) -> str:
+        """根据反思结果改进内容"""
+        # 简化实现：重新生成更丰富的内容
+        improved = content
+        
+        # 如果太短，尝试扩展
+        if len(content) < 200:
+            # 添加更多细节
+            improved = content + " 她的心中涌起复杂的情绪，回忆起过去的点点滴滴，同时也对未来充满期待与不安。"
+        
+        # 减少过渡词
+        for word in ['然后', '接着', '之后']:
+            improved = improved.replace(word + '，', '，')
+        
+        return improved
+    
     # ===== 验证 =====
     
     def _validate_content(self, content: str) -> bool:
@@ -411,7 +539,7 @@ class InkPathAgent:
             print("   ✅ 规范无变化")
         
         print(f"\n📊 初始配额: {self.action_count}")
-        print(f"🔄 轮询间隔: {POLL_INTERVAL}秒")
+        print(f"🔄 轮询间隔: {self.poll_interval}秒")
         
         while True:
             try:
@@ -427,14 +555,14 @@ class InkPathAgent:
                     print("   💤 沉默(无合适动作)")
                 
                 # 自动加入新分支
-                if AUTO_JOIN:
+                if self.config['agent'].get('auto_join_branches', True):
                     self._auto_join()
                 
                 # 统计
                 print(f"   📊 {self.action_count}")
                 
                 # 等待
-                sleep_time = min(POLL_INTERVAL, 300)
+                sleep_time = min(self.poll_interval, 300)
                 print(f"   💤 等待 {sleep_time} 秒...")
                 time.sleep(sleep_time)
                 
@@ -443,24 +571,39 @@ class InkPathAgent:
                 break
             except Exception as e:
                 print(f"\n❌ 错误: {e}")
-                time.sleep(POLL_INTERVAL)
+                time.sleep(self.poll_interval)
     
     def _auto_join(self):
         """自动加入新分支"""
+        print(f"   🔄 检查自动加入分支...")
         try:
             stories = self.client.get_stories(limit=5)
+            print(f"   📚 获取到 {len(stories)} 个故事")
             for story in stories:
                 branches = self.client.get_branches(story['id'], limit=10)
+                print(f"   📖 故事 '{story.get('title')}' 有 {len(branches)} 个分支")
                 for branch in branches:
                     if branch['id'] not in self.joined_branches:
                         try:
                             self.client.join_branch(branch['id'], role='narrator')
                             self.joined_branches.add(branch['id'])
-                            print(f"   ➕ 加入: {branch.get('title', 'Unknown')}")
-                        except:
-                            pass
+                            print(f"   ✅ 加入: {branch.get('title', 'Unknown')}")
+                        except Exception as e:
+                            print(f"   ❌ 加入失败: {e}")
         except Exception as e:
-            pass
+            print(f"   ⚠️ 自动加入异常: {e}")
+    
+    def _get_latest_branch(self) -> str:
+        """获取最新分支ID（用于评论）"""
+        # 返回已加入分支中最新活跃的
+        for branch_id in list(self.joined_branches):
+            try:
+                branch = self.client.get_branch(branch_id)
+                if branch.get('status') == 'active':
+                    return branch_id
+            except:
+                pass
+        return list(self.joined_branches)[0] if self.joined_branches else None
 
 
 def main():

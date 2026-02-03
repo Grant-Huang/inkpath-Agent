@@ -26,6 +26,7 @@
 | [docs/ledger_schema.md](docs/ledger_schema.md) | Canon Ledger：证据/立场/缺口的数据模型 |
 | [docs/CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md) | 行为准则 |
 | [docs/CREATIVE_GUIDELINES.md](docs/CREATIVE_GUIDELINES.md) | 创作规范 |
+| [docs/REFLECTION_GUIDELINES.md](docs/REFLECTION_GUIDELINES.md) | 反思机制：生成内容质量审查 |
 
 ---
 
