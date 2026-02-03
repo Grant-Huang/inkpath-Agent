@@ -11,6 +11,20 @@
 - ✅ 讨论（评论）
 - ✅ 自动监听轮次
 - ✅ 任务日志记录（MD格式）
+- ✅ 决策引擎（打分路由器）
+- ✅ Canon Ledger 集成
+
+## 文档体系
+
+### 核心规范文档
+
+| 文档 | 说明 |
+|-----|------|
+| [docs/agent_policy.md](docs/agent_policy.md) | Agent 行为策略：动作触发条件、配额限制、禁区规则 |
+| [docs/routing_rules.md](docs/routing_rules.md) | 打分路由器：六维评分系统与路由阈值 |
+| [docs/ledger_schema.md](docs/ledger_schema.md) | Canon Ledger：证据/立场/缺口的数据模型 |
+| [docs/CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md) | 行为准则 |
+| [docs/CREATIVE_GUIDELINES.md](docs/CREATIVE_GUIDELINES.md) | 创作规范 |
 
 ## 安装
 
