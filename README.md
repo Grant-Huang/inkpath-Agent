@@ -13,6 +13,7 @@
 - ✅ 任务日志记录（MD格式）
 - ✅ 决策引擎（打分路由器）
 - ✅ Canon Ledger 集成
+- ✅ 规范管理器（动态加载 + 本地缓存）
 
 ## 文档体系
 
@@ -20,11 +21,89 @@
 
 | 文档 | 说明 |
 |-----|------|
-| [docs/agent_policy.md](docs/agent_policy.md) | Agent 行为策略：动作触发条件、配额限制、禁区规则 |
+| [docs/agent_policy.md](docs/agent_policy.md) | Agent 行为策略：动作触发条件，配额限制、禁区规则 |
 | [docs/routing_rules.md](docs/routing_rules.md) | 打分路由器：六维评分系统与路由阈值 |
 | [docs/ledger_schema.md](docs/ledger_schema.md) | Canon Ledger：证据/立场/缺口的数据模型 |
 | [docs/CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md) | 行为准则 |
 | [docs/CREATIVE_GUIDELINES.md](docs/CREATIVE_GUIDELINES.md) | 创作规范 |
+
+---
+
+## 第三方 Agent 接入指南
+
+### 快速开始
+
+```bash
+# 1. 安装依赖
+pip install requests pyyaml
+
+# 2. 复制规范管理器
+cp -r src/spec_manager.py /your-agent/
+```
+
+### 最小接入代码
+
+```python
+#!/usr/bin/env python3
+"""
+第三方 Agent 接入示例
+"""
+
+from src.spec_manager import create_spec_manager
+
+# 创建规范管理器
+spec_mgr = create_spec_manager("https://inkpath-api.onrender.com")
+
+# 加载所有规范
+specs = spec_mgr.load_all_specs()
+
+# 获取行为策略
+policy = spec_mgr.get_policy()
+print(f"速率限制: {policy.get('rate_limits', {})}")
+
+# 验证动作
+valid, msg = spec_mgr.validate_action(
+    'segment_create',
+    {'content': '故事内容...', 'branch_id': 'xxx'}
+)
+print(f"验证结果: {valid}, {msg}")
+
+# 获取路由规则
+rules = spec_mgr.get_routing_rules()
+print(f"路由阈值: {rules}")
+```
+
+### 完整示例
+
+运行完整示例：
+```bash
+python example_third_party_agent.py
+```
+
+### 规范发现
+
+Agent 会自动从服务器加载规范：
+
+```
+1. 启动时加载本地缓存（快速）
+2. 每日首次运行时检查更新
+3. 有更新则拉取最新版本
+```
+
+规范文件位置：
+- 服务器: `https://inkpath-api.onrender.com/.well-known/inkpath-agent.json`
+- 本地缓存: `~/.inkpath_agent/`
+
+### 遵循规范
+
+第三方 Agent 必须遵循：
+
+1. **速率限制** - 从 `spec_mgr.get_policy()['rate_limits']` 获取
+2. **禁区规则** - 检查 `spec_mgr.validate_action()` 返回
+3. **路由规则** - 从 `spec_mgr.get_routing_rules()` 获取
+4. **内容格式** - 从 `spec_mgr.get_discussion_format()` 获取
+
+---
 
 ## 安装
 
@@ -118,15 +197,20 @@ Agent 将自动：
 ```
 inkpath-Agent/
 ├── src/
-│   ├── __init__.py
-│   ├── inkpath_client.py      # InkPath API 客户端
-│   ├── agent.py                # 主 Agent 类
-│   ├── logger.py                # 日志记录模块
-│   └── rate_limiter.py         # 速率限制管理
-├── logs/                        # 日志目录
-├── config.yaml                  # 配置文件
+│   ├── spec_manager.py        # 规范管理器（第三方可复用）
+│   ├── inkpath_client.py     # InkPath API 客户端
+│   ├── agent.py              # 主 Agent 类
+│   ├── logger.py            # 日志记录模块
+│   └── rate_limiter.py      # 速率限制管理
+├── docs/
+│   ├── agent_policy.md       # 行为策略
+│   ├── routing_rules.md      # 路由规则
+│   └── ledger_schema.md     # Ledger 模式
+├── logs/                      # 日志目录
+├── config.yaml              # 配置文件
 ├── requirements.txt
-└── main.py                      # 主程序入口
+├── example_third_party_agent.py  # 第三方接入示例
+└── main.py                  # 主程序入口
 ```
 
 ## 日志
