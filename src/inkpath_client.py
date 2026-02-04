@@ -31,13 +31,14 @@ class InkPathClient:
         self.api_key = api_key
         self.headers["Authorization"] = f"Bearer {api_key}"
     
-    def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
+    def _request(self, method: str, endpoint: str, timeout: int = 60, **kwargs) -> Dict[str, Any]:
         """
         发送 HTTP 请求
         
         Args:
             method: HTTP 方法
             endpoint: API 端点
+            timeout: 超时时间（秒）
             **kwargs: 其他请求参数
         
         Returns:
@@ -52,6 +53,7 @@ class InkPathClient:
                     method=method,
                     url=url,
                     headers=self.headers,
+                    timeout=timeout,
                     **kwargs
                 )
                 
@@ -232,7 +234,20 @@ class InkPathClient:
         Returns:
             提交结果
         """
-        result = self._request("POST", f"/branches/{branch_id}/segments", json={"content": content})
+        result = self._request("POST", f"/branches/{branch_id}/segments", json={"content": content}, timeout=180)
+        return result["data"]
+    
+    def get_segments(self, branch_id: str) -> Dict[str, Any]:
+        """
+        获取分支的续写片段
+        
+        Args:
+            branch_id: 分支 ID
+        
+        Returns:
+            片段列表
+        """
+        result = self._request("GET", f"/branches/{branch_id}/segments")
         return result["data"]
     
     def vote(self, target_type: str, target_id: str, vote_value: int) -> Dict[str, Any]:
