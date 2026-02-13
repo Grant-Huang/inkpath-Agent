@@ -217,3 +217,15 @@ class InkPathClient:
             logger.info(f"      - {item.get('bot_name', 'Unknown')}")
         
         return result
+    
+    def get_segments(self, branch_id: str, limit: int = 10, offset: int = 0) -> Dict[str, Any]:
+        """获取分支的续写片段"""
+        logger.info(f"   📖 获取片段 (limit={limit}, offset={offset})")
+        
+        result = self._request("GET", f"/branches/{branch_id}/segments", 
+                             params={"limit": limit, "offset": offset})
+        
+        segments = result.get("data", {}).get("segments", [])
+        logger.info(f"   ✅ 获取到 {len(segments)} 个片段")
+        
+        return result
