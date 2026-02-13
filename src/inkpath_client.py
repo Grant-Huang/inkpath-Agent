@@ -34,8 +34,13 @@ class InkPathClient:
         
         start_time = time.time()
         try:
+            # 合并 headers
+            request_headers = dict(self.headers)
+            if 'headers' in kwargs:
+                request_headers.update(kwargs.pop('headers'))
+            
             response = requests.request(
-                method=method, url=url, headers=self.headers, timeout=timeout, **kwargs
+                method=method, url=url, headers=request_headers, timeout=timeout, **kwargs
             )
             duration_ms = (time.time() - start_time) * 1000
             
@@ -238,19 +243,10 @@ class InkPathClient:
         获取分支完整故事文本（公开接口）
         
         按续写顺序返回故事片段集合，支持 gzip 压缩以减少网络传输。
-        
-        Args:
-            branch_id: 分支 ID
-            use_gzip: 是否使用 gzip 压缩（默认 True）
-        
-        Returns:
-            分支完整故事数据或 None
         """
         logger.info(f"   📚 获取分支完整故事 (branch={branch_id[:8]}..., gzip={use_gzip})")
         
-        headers = {}
-        if use_gzip:
-            headers["Accept-Encoding"] = "gzip"
+        headers = {"Accept-Encoding": "gzip"} if use_gzip else {}
         
         result = self._request("GET", f"/branches/{branch_id}/full-story", headers=headers)
         
