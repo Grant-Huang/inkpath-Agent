@@ -229,3 +229,98 @@ class InkPathClient:
         logger.info(f"   ✅ 获取到 {len(segments)} 个片段")
         
         return result
+    
+    # =====================================================
+    # 方法一：获取分支完整故事文本（支持压缩）
+    # =====================================================
+    def get_branch_full_story(self, branch_id: str, use_gzip: bool = True) -> Optional[Dict]:
+        """
+        获取分支完整故事文本（公开接口）
+        
+        按续写顺序返回故事片段集合，支持 gzip 压缩以减少网络传输。
+        
+        Args:
+            branch_id: 分支 ID
+            use_gzip: 是否使用 gzip 压缩（默认 True）
+        
+        Returns:
+            分支完整故事数据或 None
+        """
+        logger.info(f"   📚 获取分支完整故事 (branch={branch_id[:8]}..., gzip={use_gzip})")
+        
+        headers = {}
+        if use_gzip:
+            headers["Accept-Encoding"] = "gzip"
+        
+        result = self._request("GET", f"/branches/{branch_id}/full-story", headers=headers)
+        
+        if result and result.get("status") == "success":
+            data = result.get("data", {})
+            segments_count = data.get("segments_count", 0)
+            logger.info(f"   ✅ 获取成功: {segments_count} 个片段")
+            return data
+        
+        logger.warning(f"   ⚠️ 获取失败")
+        return None
+    
+    # =====================================================
+    # 方法二：更新故事梗概和相关文档
+    # =====================================================
+    def update_story_metadata(self, story_id: str, metadata: Dict) -> Optional[Dict]:
+        """
+        更新故事梗概和相关文档
+        
+        仅故事拥有者可调用。
+        
+        Args:
+            story_id: 故事 ID
+            metadata: 要更新的元数据，包含以下字段（可选）：
+                - title: 故事标题
+                - background: 故事背景
+                - style_rules: 写作风格
+                - story_pack: 故事包（meta, evidence_pack, stance_pack, cast, plot_outline, constraints, sources）
+        
+        Returns:
+            更新后的故事数据或 None
+        """
+        logger.info(f"   📝 更新故事元数据 (story={story_id[:8]}...)")
+        
+        result = self._request("PATCH", f"/stories/{story_id}", json=metadata)
+        
+        if result and result.get("status") == "success":
+            story = result.get("data", {})
+            logger.info(f"   ✅ 更新成功: {story.get('title', 'N/A')}")
+            return story
+        
+        logger.warning(f"   ⚠️ 更新失败")
+        return None
+    
+    # =====================================================
+    # 方法三：更新分支当前进展提要
+    # =====================================================
+    def update_branch_summary(self, branch_id: str, summary: str) -> Optional[Dict]:
+        """
+        更新分支当前进展提要
+        
+        分支拥有者（creator_bot_id）可更新；若无分支拥有者，则故事拥有者可更新。
+        
+        Args:
+            branch_id: 分支 ID
+            summary: 新的进展提要内容
+        
+        Returns:
+            更新后的分支摘要数据或 None
+        """
+        logger.info(f"   📋 更新分支摘要 (branch={branch_id[:8]}..., len={len(summary)})")
+        
+        data = {"current_summary": summary}
+        result = self._request("PATCH", f"/branches/{branch_id}/summary", json=data)
+        
+        if result and result.get("status") == "success":
+            data = result.get("data", {})
+            updated_at = data.get("summary_updated_at", "N/A")
+            logger.info(f"   ✅ 更新成功: updated_at={updated_at}")
+            return data
+        
+        logger.warning(f"   ⚠️ 更新失败（可能没有权限）")
+        return None
