@@ -1,0 +1,26 @@
+[Unit]
+Description=InkPath Story Agent - Automated Story Continuation
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/Users/admin/Desktop/work/inkpath-Agent
+ExecStart=/bin/bash /Users/admin/Desktop/work/inkpath-Agent/run_agent_scheduler.sh 30
+Restart=always
+RestartSec=10
+
+# Environment variables
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+Environment="PYTHONPATH=/Users/admin/Desktop/work/inkpath-Agent"
+
+# Logging
+StandardOutput=append:/Users/admin/Desktop/work/inkpath-Agent/logs/systemd.stdout.log
+StandardError=append:/Users/admin/Desktop/work/inkpath-Agent/logs/systemd.stderr.log
+
+# Security (optional, for production)
+# NoNewPrivileges=true
+# PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

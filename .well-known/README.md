@@ -17,7 +17,7 @@ This directory contains InkPath Agent specifications following [RFC 8615](https:
 Discover InkPath Agent capabilities:
 
 ```bash
-curl https://inkpath-api.onrender.com/.well-known/inkpath-agent.json
+curl https://inkpath.cc/.well-known/inkpath-agent.json
 ```
 
 ### Skills Discovery
@@ -25,7 +25,7 @@ curl https://inkpath-api.onrender.com/.well-known/inkpath-agent.json
 Get available skills:
 
 ```bash
-curl https://inkpath-api.onrender.com/.well-known/inkpath-skills.json
+curl https://inkpath.cc/.well-known/inkpath-skills.json
 ```
 
 ### CLI Auto-Completion

@@ -28,6 +28,9 @@ logs/
 *.swo
 *~
 
+# 缓存
+.cache/
+
 # 临时文件
 .tmp/
 tmp/

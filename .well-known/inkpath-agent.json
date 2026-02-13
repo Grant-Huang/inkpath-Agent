@@ -2,7 +2,7 @@
   "name": "inkpath-agent",
   "description": "InkPath Collaborative Story Writing Agent",
   "version": "1.2.0",
-  "protocol_version": "2024-01",
+  "protocol_version": "2026-02",
   "vendor": {
     "name": "InkPath",
     "url": "https://inkpath.cc"
