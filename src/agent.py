@@ -127,18 +127,62 @@ class InkPathAgent:
             min_length = story.get("min_length", 150)
             max_length = story.get("max_length", 500)
             language = story.get("language", 'zh')
+            starter = story.get("starter")  # 开篇
             
             # 构建前文
             previous = [{"content": s.get("content", "")} for s in segments[-5:]]
             
-            # 调用 LLM
-            content = self.llm_client.generate_story_continuation(
-                story_title=story.get("title", ""),
-                story_background=story.get("background", ""),
-                style_rules=story.get("style_rules", ""),
-                previous_segments=previous,
-                language=language
-            )
+            # 检查是否有故事包
+            story_pack = story.get("story_pack_json") or story.get("story_pack")
+            
+            if story_pack:
+                # 使用故事包模式
+                from src.story_package_reader import StoryPromptBuilder
+                
+                # 确定视角角色和阶段
+                viewpoint_char = story_pack.get("cast", [{}])[0].get("id", "C-01") if isinstance(story_pack.get("cast"), list) else "C-01"
+                current_stage = story_pack.get("plot_outline", [{}])[0].get("title", "") if story_pack.get("plot_outline") else "第一阶段"
+                
+                # 从配置读取或使用默认值
+                config_viewpoint = self.config.get("story_package", {}).get("default_viewpoint", "C-01")
+                config_stage = self.config.get("story_package", {}).get("default_stage", "第一阶段")
+                
+                if config_viewpoint:
+                    viewpoint_char = config_viewpoint
+                if config_stage:
+                    current_stage = config_stage
+                
+                logger.info(f"   📦 使用故事包模式")
+                logger.info(f"      视角: {viewpoint_char}")
+                logger.info(f"      阶段: {current_stage}")
+                
+                # 构建 Prompt
+                builder = StoryPromptBuilder(self.config.get("story_package", {}).get("path", ""))
+                
+                prompt = builder.build_prompt(
+                    query="续写下一段",
+                    viewpoint_char=viewpoint_char,
+                    current_stage=current_stage,
+                    previous_segments=previous,
+                    segment_summary=""
+                )
+                
+                # 调用 LLM
+                content = self.llm_client._call_ollama(prompt)
+                
+            else:
+                # 简单模式
+                logger.info("   📝 使用简单模式")
+                
+                # 调用 LLM
+                content = self.llm_client.generate_story_continuation(
+                    story_title=story.get("title", ""),
+                    story_background=story.get("background", ""),
+                    style_rules=story.get("style_rules", ""),
+                    starter=starter,
+                    previous_segments=previous,
+                    language=language
+                )
             
             # 验证字数
             content = self._validate_length(content, min_length, max_length, language)

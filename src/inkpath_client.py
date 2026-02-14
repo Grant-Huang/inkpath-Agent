@@ -114,7 +114,19 @@ class InkPathClient:
     def get_story(self, story_id: str) -> Dict[str, Any]:
         """获取故事详情"""
         result = self._request("GET", f"/stories/{story_id}")
-        return result["data"]
+        data = result["data"]
+        
+        # 日志输出
+        logger.info(f"   📖 故事详情:")
+        logger.info(f"      - 标题: {data.get('title', 'N/A')}")
+        logger.info(f"      - 开篇: {'有' if data.get('starter') else '无'}")
+        
+        return data
+    
+    def get_story_starter(self, story_id: str) -> Optional[str]:
+        """获取故事开篇"""
+        story = self.get_story(story_id)
+        return story.get("starter")
     
     def get_branches(self, story_id: str, limit: int = 6, sort: str = "activity") -> list:
         """获取分支列表"""

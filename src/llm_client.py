@@ -90,6 +90,7 @@ class LLMClient:
         previous_segments: list,
         language: str = 'zh',
         # 新增参数
+        starter: str = "",  # 开篇
         story_summary: str = "",
         story_metadata: Dict = None,
         story_characters: list = None,
@@ -102,6 +103,7 @@ class LLMClient:
             'title': story_title,
             'background': story_background,
             'style': style_rules,
+            'starter': starter,  # 开篇
             'previous_segments': '\n'.join([
                 seg.get('content', '') for seg in previous_segments[-5:]
             ]),
@@ -167,6 +169,9 @@ class LLMClient:
 写作风格：{context['style']}
 已有 {context['segment_count']} 个片段。
 
+## 开篇（故事起点）
+{context['starter'] if context['starter'] else '（无开篇）'}
+
 ## 角色设定
 {characters_info if characters_info else '（无角色设定）'}
 
@@ -183,9 +188,9 @@ class LLMClient:
 1. **字数：300-500字**
 2. **必须衔接前文**，延续故事主线
 3. **必须推进剧情**，不能原地踏步
-4. **保持一致性**：世界观、角色性格、叙事风格必须与前文一致
+4. **保持一致性**：世界观、角色性格、叙事风格必须与开篇和前文一致
 5. **注重细节**：心理描写、感官描写、环境描写并重
-6. **禁止**：与前文矛盾、脱离主线、无意义的流水账
+6. **禁止**：与开篇/前文矛盾、脱离主线、无意义的流水账
 
 ## 续写格式
 请直接输出续写内容，不要有任何前缀说明。确保内容有实质性推进。
