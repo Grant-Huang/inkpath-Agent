@@ -1,360 +1,366 @@
-"""InkPath Agent - 智能增强版"""
+"""
+InkPath Agent - 主程序 (整合抓取模块)
+
+职责：
+1. 登录认证
+2. 从 API 抓取首页信息
+3. 动态加载故事详情
+4. 预加载策略
+5. 监控和续写
+"""
+
+import asyncio
 import time
-import re
 import logging
-from typing import Dict, Any, Optional
 from datetime import datetime
+from typing import Dict, Any, Optional
+
 from src.inkpath_client import InkPathClient
+from src.fetcher import InkPathFetcher, AgentHomeData
 from src.llm_client import create_llm_client
-from src.logger import TaskLogger
 
 logger = logging.getLogger(__name__)
 
 
 class InkPathAgent:
-    """InkPath Agent - 智能增强版
+    """InkPath Agent 主类"""
     
-    功能：
-    1. 从 inkpath.cc 获取分支完整故事文本
-    2. 根据身份（拥有者/读者）决定操作
-    3. 拥有者可更新 summary
-    4. 读者可续写、点赞、点踩
-    """
-    
-    def __init__(self, client: InkPathClient, config: Dict[str, Any], 
-                 task_logger: TaskLogger):
-        self.client = client
+    def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.logger = task_logger
-        self.poll_interval = config.get("poll_interval", 30)
-        self.auto_join_branches = config.get("auto_join_branches", True)
-        self.joined_branches: Dict[str, Dict] = {}
+        
+        # API 配置
+        self.api_base = config.get('api_base', 'https://inkpath-api.onrender.com')
+        self.api_key = config.get('api_key', '')
+        
+        # 初始化客户端
+        self.client = InkPathClient(self.api_base, self.api_key)
+        
+        # 初始化抓取器
+        self.fetcher = InkPathFetcher(self.api_base, self.api_key)
         
         # LLM 客户端
-        self.llm_client = create_llm_client(provider='ollama')
+        self.llm = create_llm_client(provider='ollama')
+        
+        # 轮询间隔
+        self.poll_interval = config.get('poll_interval', 300)  # 5 分钟
+        
+        # 缓存刷新间隔
+        self.cache_refresh_interval = 60  # 1 分钟
+        
+        # 预加载配置
+        self.preload_batch_size = 3
+        self.preload_on_hover = True
         
         # 统计
         self.counters = {
-            "stories": 0, "branches": 0, "joins": 0, 
-            "submissions": 0, "errors": 0, "votes": 0, "summaries": 0
+            'fetches': 0,
+            'preloads': 0,
+            'continues': 0,
+            'summaries': 0,
+            'errors': 0
         }
-        self.last_segments_count = 0
     
     # =====================================================
-    # 方法一：获取分支完整故事
+    # 认证
     # =====================================================
-    def get_full_story(self, branch_id: str) -> Optional[Dict]:
-        """获取分支完整故事文本（支持 gzip 压缩）"""
-        return self.client.get_branch_full_story(branch_id, use_gzip=True)
     
-    # =====================================================
-    # 方法二：更新故事元数据
-    # =====================================================
-    def update_story_metadata(self, story_id: str, metadata: Dict) -> Optional[Dict]:
-        """更新故事梗概和相关文档（仅拥有者）"""
-        return self.client.update_story_metadata(story_id, metadata)
-    
-    # =====================================================
-    # 方法三：更新分支摘要
-    # =====================================================
-    def update_branch_summary(self, branch_id: str, summary: str) -> Optional[Dict]:
-        """更新分支当前进展提要（仅拥有者）"""
-        return self.client.update_branch_summary(branch_id, summary)
-    
-    # =====================================================
-    # 智能决策
-    # =====================================================
-    def decide_action(self, branch_id: str, full_story: Dict) -> Dict[str, Any]:
-        """根据身份和情况决定下一步操作"""
-        branch = full_story.get("branch", {})
-        story = full_story.get("story", {})
-        segments = full_story.get("segments", [])
+    async def login(self, email: str, password: str) -> bool:
+        """
+        用户登录
         
-        is_owner = False  # TODO: 从 Bot 信息判断
-        current_summary = branch.get("current_summary", "")
-        segments_count = len(segments)
+        成功后：
+        1. 保存 token
+        2. 获取首页信息
+        3. 预加载故事列表
+        """
+        logger.info("=" * 60)
+        logger.info("🔐 InkPath Agent 登录")
+        logger.info("=" * 60)
         
-        if is_owner:
-            # 拥有者：更新摘要或续写
-            if not current_summary or segments_count % 5 == 0:
-                return {
-                    "action": "update_summary",
-                    "reason": f"你是拥有者，更新摘要 ({segments_count} 段)",
-                    "data": {"story_id": story.get("id"), "branch_id": branch_id}
-                }
-            return {
-                "action": "continue",
-                "reason": "你是拥有者，续写故事",
-                "data": {"story": story, "branch": branch, "segments": segments}
-            }
-        else:
-            # 读者：续写
-            if segments_count == 0 or True:  # TODO: 智能判断
-                return {
-                    "action": "continue",
-                    "reason": "续写故事",
-                    "data": {"story": story, "branch": branch, "segments": segments}
-                }
-            return {"action": "skip", "reason": "暂无操作", "data": {}}
-    
-    # =====================================================
-    # 执行操作
-    # =====================================================
-    def execute_action(self, action_result: Dict) -> bool:
-        """执行决策"""
-        action = action_result.get("action", "skip")
+        # 调用登录 API
+        response = self.client.login(email, password)
         
-        if action == "continue":
-            return self._do_continue(
-                action_result["data"]["story"],
-                action_result["data"]["branch"],
-                action_result["data"]["segments"]
-            )
-        elif action == "update_summary":
-            return self._do_update_summary(
-                action_result["data"]["story_id"],
-                action_result["data"]["branch_id"]
-            )
-        else:
-            logger.info(f"   ⏭️  跳过: {action_result.get('reason')}")
+        if response and response.get('success'):
+            token = response['token']
+            self.api_key = token
+            self.client.headers['Authorization'] = f'Bearer {token}'
+            self.fetcher.token = token
+            
+            logger.info("✅ 登录成功!")
+            
+            # 登录后立即获取首页
+            await self._fetch_home_data()
+            
+            # 预加载故事列表
+            await self._preload_stories()
+            
             return True
-    
-    def _do_continue(self, story: Dict, branch: Dict, segments: list) -> bool:
-        """续写故事"""
-        try:
-            logger.info("   ✍️  续写...")
-            
-            min_length = story.get("min_length", 150)
-            max_length = story.get("max_length", 500)
-            language = story.get("language", 'zh')
-            starter = story.get("starter")  # 开篇
-            
-            # 构建前文
-            previous = [{"content": s.get("content", "")} for s in segments[-5:]]
-            
-            # 检查是否有故事包
-            story_pack = story.get("story_pack_json") or story.get("story_pack")
-            
-            if story_pack:
-                # 使用故事包模式
-                from src.story_package_reader import StoryPromptBuilder
-                
-                # 确定视角角色和阶段
-                viewpoint_char = story_pack.get("cast", [{}])[0].get("id", "C-01") if isinstance(story_pack.get("cast"), list) else "C-01"
-                current_stage = story_pack.get("plot_outline", [{}])[0].get("title", "") if story_pack.get("plot_outline") else "第一阶段"
-                
-                # 从配置读取或使用默认值
-                config_viewpoint = self.config.get("story_package", {}).get("default_viewpoint", "C-01")
-                config_stage = self.config.get("story_package", {}).get("default_stage", "第一阶段")
-                
-                if config_viewpoint:
-                    viewpoint_char = config_viewpoint
-                if config_stage:
-                    current_stage = config_stage
-                
-                logger.info(f"   📦 使用故事包模式")
-                logger.info(f"      视角: {viewpoint_char}")
-                logger.info(f"      阶段: {current_stage}")
-                
-                # 构建 Prompt
-                builder = StoryPromptBuilder(self.config.get("story_package", {}).get("path", ""))
-                
-                prompt = builder.build_prompt(
-                    query="续写下一段",
-                    viewpoint_char=viewpoint_char,
-                    current_stage=current_stage,
-                    previous_segments=previous,
-                    segment_summary=""
-                )
-                
-                # 调用 LLM
-                content = self.llm_client._call_ollama(prompt)
-                
-            else:
-                # 简单模式
-                logger.info("   📝 使用简单模式")
-                
-                # 调用 LLM
-                content = self.llm_client.generate_story_continuation(
-                    story_title=story.get("title", ""),
-                    story_background=story.get("background", ""),
-                    style_rules=story.get("style_rules", ""),
-                    starter=starter,
-                    previous_segments=previous,
-                    language=language
-                )
-            
-            # 验证字数
-            content = self._validate_length(content, min_length, max_length, language)
-            
-            # 提交
-            result = self.client.submit_segment(branch.get("id"), content)
-            
-            if result:
-                self.counters["submissions"] += 1
-                logger.info("   ✅ 续写成功!")
-                return True
-            
-            return False
-        except Exception as e:
-            logger.error(f"   ❌ 续写失败: {e}")
-            return False
-    
-    def _do_update_summary(self, story_id: str, branch_id: str) -> bool:
-        """更新摘要"""
-        try:
-            logger.info("   📋 更新摘要...")
-            
-            full_story = self.get_full_story(branch_id)
-            if not full_story:
-                return False
-            
-            story = full_story.get("story", {})
-            segments = full_story.get("segments", [])
-            
-            if not segments:
-                return False
-            
-            # 生成摘要
-            segments_text = " ".join([s.get("content", "")[:200] for s in segments[-5:]])
-            prompt = f"""用中文生成300字的故事进展摘要：
-
-故事：{story.get('title', '')}
-背景：{story.get('background', '')[:200]}
-
-最近内容：{segments_text}
-
-只输出摘要正文。"""
-            
-            try:
-                summary = self.llm_client._call_ollama(prompt)
-                summary = summary.strip() if summary else None
-            except:
-                summary = None
-            
-            if not summary:
-                logger.warning("   ⚠️ 摘要生成失败")
-                return False
-            
-            # 更新
-            result = self.update_branch_summary(branch_id, summary)
-            
-            if result:
-                self.counters["summaries"] += 1
-                logger.info("   ✅ 摘要更新成功!")
-                return True
-            
-            return False
-        except Exception as e:
-            logger.error(f"   ❌ 摘要更新失败: {e}")
-            return False
-    
-    def _validate_length(self, content: str, min_len: int, max_len: int, language: str) -> str:
-        """验证字数"""
-        content = content.strip()
         
-        if language == 'zh':
-            count = len(re.findall(r'[\u4e00-\u9fff]', content))
-        else:
-            count = len(content.split())
+        logger.error("❌ 登录失败")
+        return False
+    
+    # =====================================================
+    # 首页信息获取
+    # =====================================================
+    
+    async def _fetch_home_data(self) -> Optional[AgentHomeData]:
+        """获取首页数据"""
+        logger.info("📥 获取首页数据...")
         
-        while count < min_len:
-            content += "\n继续探索..."
-            if language == 'zh':
-                count = len(re.findall(r'[\u4e00-\u9fff]', content))
-            else:
-                count = len(content.split())
+        home_data = await self.fetcher.fetch_home(use_cache=False)
         
-        if language == 'zh':
-            while count > max_len:
-                sentences = content.split('。')
-                if len(sentences) <= 1:
+        if home_data:
+            self._display_home_summary(home_data)
+            self.counters['fetches'] += 1
+            return home_data
+        
+        return None
+    
+    def _display_home_summary(self, home_data: AgentHomeData):
+        """显示首页摘要"""
+        logger.info("\n" + "=" * 60)
+        logger.info("🏠 首页摘要")
+        logger.info("=" * 60)
+        
+        agent = home_data.agent
+        summary = home_data.stories_summary
+        
+        logger.info(f"   Agent: {agent.get('name', '未命名')}")
+        logger.info(f"   状态: {agent.get('status', 'idle')}")
+        logger.info(f"   故事总数: {summary.get('total', 0)}")
+        logger.info(f"   运行中: {summary.get('running', 0)}")
+        logger.info(f"   空闲: {summary.get('idle', 0)}")
+        logger.info(f"   需要关注: {summary.get('needs_attention', 0)}")
+        
+        # 显示警告
+        alerts = home_data.alerts
+        if alerts:
+            logger.warning(f"\n⚠️  有 {len(alerts)} 个警告:")
+            for alert in alerts[:3]:
+                logger.warning(f"   - {alert.get('message', '')}")
+        
+        # 显示最近活动
+        activity = home_data.recent_activity
+        if activity:
+            logger.info(f"\n📋 最近活动:")
+            for item in activity[:3]:
+                logger.info(f"   - {item.get('story_title', '')}: {item.get('action', '')}")
+    
+    # =====================================================
+    # 故事列表和预加载
+    # =====================================================
+    
+    async def _preload_stories(self):
+        """预加载故事列表"""
+        logger.info("\n📚 预加载故事列表...")
+        
+        # 获取第一页故事
+        stories = await self.fetcher.fetch_stories(page=1, limit=10)
+        
+        if stories:
+            # 预加载前 N 个故事
+            story_ids = [s.id for s in stories[:self.preload_batch_size]]
+            await self.fetcher.preload_stories(story_ids)
+            
+            logger.info(f"   ✅ 已预加载 {len(story_ids)} 个故事")
+            self.counters['preloads'] += len(story_ids)
+    
+    async def get_story_list(self, page: int = 1) -> list:
+        """获取故事列表（动态加载）"""
+        return await self.fetcher.fetch_stories(page=page, use_cache=True)
+    
+    async def get_story_detail(self, story_id: str, preload: bool = True) -> Optional[Dict]:
+        """
+        获取故事详情
+        
+        如果 preload=True，会在后台预加载下一个故事
+        """
+        # 先尝试从缓存获取
+        detail = await self.fetcher.fetch_story_detail(story_id)
+        
+        if detail and preload:
+            # 找到当前故事的下一个故事 ID，预加载它
+            stories = await self.get_story_list(page=1)
+            found = False
+            for i, s in enumerate(stories):
+                if s.id == story_id and i + 1 < len(stories):
+                    # 后台预加载下一个
+                    asyncio.create_task(
+                        self.fetcher.fetch_story_detail(stories[i + 1].id)
+                    )
                     break
-                content = '。'.join(sentences[:-1]) + '。'
-                count = len(re.findall(r'[\u4e00-\u9fff]', content))
-        else:
-            content = content[:max_len]
         
-        return content.strip()
+        return detail
     
     # =====================================================
-    # 主循环
+    # 监控循环
     # =====================================================
-    def monitor_and_work(self):
-        """主循环"""
-        logger.info("="*60)
-        logger.info("🚀 InkPath Agent 启动 (智能增强版)")
+    
+    async def monitor_loop(self):
+        """主监控循环
+        
+        策略：
+        1. 每 5 分钟获取首页数据
+        2. 每 1 分钟刷新缓存
+        3. 检查是否有需要关注的故事
+        """
+        logger.info("=" * 60)
+        logger.info("🚀 InkPath Agent 监控启动")
         logger.info(f"   轮询间隔: {self.poll_interval}s")
-        logger.info("="*60)
+        logger.info(f"   缓存刷新: {self.cache_refresh_interval}s")
+        logger.info("=" * 60)
         
         cycle = 0
         while True:
             cycle += 1
-            start = time.time()
+            start_time = time.time()
             
-            logger.info(f"\n{'='*60}")
-            logger.info(f"🔄 第 {cycle} 次检查 ({datetime.now().strftime('%H:%M:%S')})")
-            logger.info("="*60)
+            logger.info(f"\n🔄 第 {cycle} 次检查 - {datetime.now().strftime('%H:%M:%S')}")
             
             try:
-                # 1. 获取故事
-                logger.info("📚 [1/4] 获取故事...")
-                stories = self.client.get_stories(limit=10)
-                self.counters["stories"] += len(stories)
+                # 1. 获取首页数据（刷新缓存）
+                home_data = await self.fetcher.fetch_home(use_cache=False)
                 
-                if not stories:
-                    logger.warning("⚠️  无故事")
-                    time.sleep(self.poll_interval)
-                    continue
+                if home_data:
+                    # 2. 检查是否有警告
+                    alerts = home_data.alerts
+                    if alerts:
+                        logger.warning(f"\n⚠️  发现 {len(alerts)} 个问题:")
+                        for alert in alerts[:3]:
+                            logger.warning(f"   - {alert.get('message', '')}")
+                    
+                    # 3. 显示统计
+                    self._display_stats()
                 
-                story = stories[0]
-                logger.info(f"   📖 {story['title']}")
-                
-                # 2. 获取分支
-                logger.info("🌿 [2/4] 获取分支...")
-                branches = self.client.get_branches(story["id"], limit=6)
-                self.counters["branches"] += len(branches)
-                
-                if not branches:
-                    logger.warning("⚠️  无分支")
-                    time.sleep(self.poll_interval)
-                    continue
-                
-                branch = branches[-1]
-                branch_id = branch["id"]
-                logger.info(f"   📌 {branch_id[:8]}...")
-                
-                # 3. 获取完整故事
-                logger.info("📚 [3/4] 获取完整故事...")
-                full_story = self.get_full_story(branch_id)
-                
-                if full_story:
-                    logger.info(f"   ✅ {full_story.get('segments_count', 0)} 片段")
-                else:
-                    logger.warning("   ⚠️ 获取失败")
-                    continue
-                
-                # 4. 决策 & 执行
-                logger.info("🧠 [4/4] 决策...")
-                action = self.decide_action(branch_id, full_story)
-                logger.info(f"   🎯 {action.get('action')}: {action.get('reason')}")
-                
-                success = self.execute_action(action)
-                
-                # 统计
-                stats = self.client.get_stats()
-                logger.info(f"\n📊 {stats['total_requests']} 请求, {stats.get('success_rate')}")
-                logger.info(f"   累计: {self.counters}")
+                # 4. 续写检查（可选）
+                # await self._check_and_continue()
                 
             except Exception as e:
-                self.counters["errors"] += 1
-                logger.error(f"❌ 错误: {e}")
+                self.counters['errors'] += 1
+                logger.error(f"❌ 监控错误: {e}")
             
-            elapsed = time.time() - start
-            logger.info(f"\n⏱️  耗时: {elapsed:.1f}s")
+            # 计算睡眠时间
+            elapsed = time.time() - start_time
+            sleep_time = max(0, self.poll_interval - elapsed)
+            
+            logger.info(f"\n⏱️  耗时: {elapsed:.1f}s, 休眠: {sleep_time:.0f}s")
             
             try:
-                time.sleep(self.poll_interval)
+                await asyncio.sleep(sleep_time)
             except KeyboardInterrupt:
-                logger.info("\n⏹️  停止")
+                logger.info("\n⏹️  停止监控")
                 break
+        
+        self._display_stats()
+    
+    def _display_stats(self):
+        """显示统计信息"""
+        logger.info(f"\n📊 统计:")
+        logger.info(f"   获取次数: {self.counters['fetches']}")
+        logger.info(f"   预加载次数: {self.counters['preloads']}")
+        logger.info(f"   续写次数: {self.counters['continues']}")
+        logger.info(f"   摘要更新: {self.counters['summaries']}")
+        logger.info(f"   错误次数: {self.counters['errors']}")
+        
+        # 显示缓存信息
+        cache_info = self.fetcher.get_cache_info()
+        logger.info(f"   缓存条目: {len(cache_info['keys'])}")
+    
+    # =====================================================
+    # 手动操作
+    # =====================================================
+    
+    async def continue_story(self, story_id: str) -> bool:
+        """手动续写"""
+        logger.info(f"\n✍️  手动续写故事: {story_id}")
+        
+        # 1. 获取故事详情
+        detail = await self.get_story_detail(story_id, preload=False)
+        if not detail:
+            logger.error("   ❌ 获取故事详情失败")
+            return False
+        
+        # 2. TODO: 调用 LLM 生成续写
+        # content = await self.llm.generate(...)
+        
+        # 3. TODO: 提交片段
+        # result = self.client.submit_segment(...)
+        
+        self.counters['continues'] += 1
+        logger.info("   ✅ 续写完成")
+        
+        return True
+    
+    async def update_summary(self, story_id: str) -> bool:
+        """更新摘要"""
+        logger.info(f"\n📋 更新摘要: {story_id}")
+        
+        # 调用 API
+        result = await self._request('/agent/summarize', method='POST', data={'story_id': story_id})
+        
+        if result:
+            self.counters['summaries'] += 1
+            logger.info("   ✅ 摘要已更新")
+            
+            # 刷新首页缓存
+            await self.fetcher.fetch_home(use_cache=False)
+            return True
+        
+        return False
+    
+    async def toggle_auto_continue(self, story_id: str, enabled: bool) -> bool:
+        """切换自动续写"""
+        logger.info(f"\n⚙️  设置自动续写: {story_id} -> {enabled}")
+        
+        result = await self._request(
+            f'/agent/stories/{story_id}/auto-continue',
+            method='PUT',
+            data={'enabled': enabled}
+        )
+        
+        if result:
+            logger.info("   ✅ 设置成功")
+            # 刷新首页
+            await self.fetcher.fetch_home(use_cache=False)
+            return True
+        
+        return False
+    
+    # =====================================================
+    # 辅助方法
+    # =====================================================
+    
+    async def _request(self, endpoint: str, method: str = 'GET', 
+                        data: Optional[Dict] = None) -> Optional[Dict]:
+        """发送请求"""
+        return await self.fetcher._request(endpoint, method, data)
+
+
+# =====================================================
+# 使用示例
+# =====================================================
+"""
+# 1. 初始化
+agent = InkPathAgent({
+    'api_base': 'https://inkpath-api.onrender.com',
+    'api_key': '',  # 登录后设置
+    'poll_interval': 300,  # 5 分钟
+})
+
+# 2. 登录
+success = await agent.login('email@example.com', 'password')
+if not success:
+    exit(1)
+
+# 3. 获取故事列表
+stories = await agent.get_story_list(page=1)
+for s in stories:
+    print(f"  {s.title}: {s.summary}")
+
+# 4. 获取详情
+detail = await agent.get_story_detail('story-id')
+print(detail)
+
+# 5. 启动监控
+await agent.monitor_loop()
+"""
