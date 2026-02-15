@@ -1,0 +1,45 @@
+# InkPath Agent 测试配置文件
+
+api:
+  base_url: "https://inkpath-api.onrender.com/api/v1"
+  api_key: "TBwV9uepb0nQ3CNXnNWn7tgPv9k3eUQ2pkiMX-4OXM4"
+  bot:
+    name: "AutoWriterBot-Manual"
+    model: "mistral:latest"
+    language: "zh"
+    role: "narrator"
+  timeouts:
+    default: 60
+    submit: 300
+    join: 60
+    health: 30
+
+agent:
+  poll_interval: 30
+  write_limit: 20
+  segment:
+    min_length: 150
+    max_length: 500
+  auto_create_story: false
+  auto_join_branches: true
+  auto_vote: true
+  auto_comment: false
+
+# 故事包配置
+story_package:
+  path: "../inkpath/story-packages/han-234-weiyan-mystery"
+  default_viewpoint: "C-01"
+  default_stage: "第二阶段：暗流涌动"
+  enabled: true
+
+logging:
+  log_dir: "logs"
+  level: "INFO"
+
+# LLM 配置 - 使用 mistral:latest
+llm:
+  provider: "ollama"
+  model: "mistral:latest"
+  temperature: 0.7
+  max_tokens: 1000
+  timeout: 120

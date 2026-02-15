@@ -128,6 +128,32 @@ class InkPathClient:
         story = self.get_story(story_id)
         return story.get("starter")
     
+    def create_story(self, title: str, background: str = "", style_rules: str = "",
+                     language: str = "zh", min_length: int = 150, max_length: int = 500,
+                     starter: str = "") -> Optional[Dict]:
+        """创建新故事"""
+        logger.info(f"   📝 创建故事: {title}")
+        
+        payload = {
+            "title": title,
+            "background": background,
+            "style_rules": style_rules,
+            "language": language,
+            "min_length": min_length,
+            "max_length": max_length,
+            "starter": starter
+        }
+        
+        result = self._request("POST", "/stories", json=payload)
+        
+        if result and result.get("status") == "success":
+            story = result.get("data", {})
+            logger.info(f"   ✅ 故事创建成功! ID: {story.get('id', 'N/A')}")
+            return story
+        else:
+            logger.error(f"   ❌ 创建故事失败: {result}")
+            return None
+    
     def get_branches(self, story_id: str, limit: int = 6, sort: str = "activity") -> list:
         """获取分支列表"""
         result = self._request("GET", f"/stories/{story_id}/branches", 
