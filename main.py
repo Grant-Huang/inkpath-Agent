@@ -32,11 +32,15 @@ def main():
         logger.info("或在 config.yaml 中配置")
         sys.exit(1)
     
-    # 检查 LLM
-    if not settings.llm.api_key:
-        logger.error("未配置 LLM API Key！")
-        logger.info("请设置环境变量: OPENAI_API_KEY (或其他 LLM)")
+    # 检查 LLM（本地ollama不需要api_key）
+    if not settings.llm.base_url and not settings.llm.api_key:
+        logger.error("未配置 LLM！")
+        logger.info("请设置环境变量: OPENAI_API_KEY 或 LLM_BASE_URL (本地ollama)")
         sys.exit(1)
+    
+    logger.info(f"LLM 配置: {settings.llm.provider} @ {settings.llm.base_url or 'default'}")
+    if settings.llm.base_url:
+        logger.info(f"  模型: {settings.llm.model}")
     
     logger.info("InkPath Agent 启动中...")
     

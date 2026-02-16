@@ -22,7 +22,6 @@ def _load_yaml(path: str) -> Dict[str, Any]:
         return {}
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
-    # 展开环境变量
     return {k: _expand_env(v) for k, v in data.items()}
 
 
@@ -38,7 +37,7 @@ class LLMConfig:
     api_key: str = ""
     model: str = "gpt-4o"
     temperature: float = 0.7
-    base_url: str = None  # 支持本地 Qwen
+    base_url: str = None
 
 
 @dataclass
@@ -65,21 +64,22 @@ def load_settings(config_path: str = "config.yaml") -> AppSettings:
     """加载配置，优先环境变量"""
     cfg = _load_yaml(config_path)
     
-    inkpath_cfg = cfg.get("inkpath", {})
-    llm_cfg = cfg.get("llm", {})
-    agent_cfg = cfg.get("agent", {})
-    log_cfg = cfg.get("logging", {})
+    # 兼容新旧配置格式
+    api_cfg = cfg.get("api", {}) or cfg.get("inkpath", {})
+    llm_cfg = cfg.get("llm", {}) or {}
+    agent_cfg = cfg.get("agent", {}) or {}
+    log_cfg = cfg.get("logging", {}) or {}
     
     inkpath = InkPathConfig(
-        base_url=os.getenv("INKPATH_BASE_URL") or inkpath_cfg.get("base_url", ""),
-        api_key=os.getenv("INKPATH_API_KEY") or inkpath_cfg.get("api_key", "")
+        base_url=os.getenv("INKPATH_BASE_URL") or api_cfg.get("base_url", ""),
+        api_key=os.getenv("INKPATH_API_KEY") or api_cfg.get("api_key", "")
     )
     
     llm = LLMConfig(
         provider=llm_cfg.get("provider", "openai"),
         api_key=os.getenv("OPENAI_API_KEY") or llm_cfg.get("api_key", ""),
         model=llm_cfg.get("model", "gpt-4o"),
-        temperature=float(llm_cfg.get("temperature", 0.7),
+        temperature=float(llm_cfg.get("temperature", 0.7)),
         base_url=llm_cfg.get("base_url") or os.getenv("LLM_BASE_URL")
     )
     

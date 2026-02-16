@@ -79,8 +79,8 @@ class InkPathAgent:
     async def _fetch_stories(self) -> list:
         """获取故事列表"""
         try:
-            # 调用 API 获取分配的故事
-            result = self.client.get(f"/users/me/stories")
+            # 调用 API 获取分配给此 Bot 的故事
+            result = self.client.get(f"/agent/stories")
             if result and result.get('success'):
                 return result.get('data', {}).get('stories', [])
         except Exception as e:
@@ -92,17 +92,25 @@ class InkPathAgent:
         story_id = story.get('id')
         story_title = story.get('title', '')[:20]
         
-        # 获取故事分支
-        branches = await self._fetch_branches(story_id)
+        # 调用 API 续写
+        logger.info(f"   ✍️ {story_title}: 尝试续写...")
         
-        if not branches:
-            logger.info(f"   📝 {story_title}: 无分支，创建开篇")
-            # TODO: 创建分支
-            return
-        
-        # 检查是否可以续写
-        for branch in branches[:2]:
-            await self._try_continue(branch)
+        try:
+            result = self.client.post(f"/agent/stories/{story_id}/continue", {})
+            if result and result.get('success') != False:
+                logger.info(f"   ✅ 续写成功！片段ID: {result.get('data', {}).get('segment_id', 'unknown')[:8]}...")
+                self.stats['continues'] += 1
+                
+                # 自动更新摘要
+                if self.settings.agent.auto_comment:
+                    logger.info(f"   📝 {story_title}: 更新摘要...")
+                    summary_result = self.client.post(f"/agent/stories/{story_id}/summarize", {})
+                    if summary_result and summary_result.get('success') != False:
+                        logger.info(f"   ✅ 摘要已更新")
+            else:
+                logger.info(f"   ⏭️ {story_title}: 跳过续写")
+        except Exception as e:
+            logger.warning(f"   ⚠️ 续写失败: {e}")
     
     async def _fetch_branches(self, story_id: str) -> list:
         """获取分支列表"""
