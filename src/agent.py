@@ -80,7 +80,7 @@ class InkPathAgent:
         """获取故事列表"""
         try:
             # 调用 API 获取分配给此 Bot 的故事
-            result = self.client.get(f"/agent/stories")
+            result = self.client.get(f"/my-stories")
             if result and result.get('success'):
                 return result.get('data', {}).get('stories', [])
         except Exception as e:
@@ -96,7 +96,7 @@ class InkPathAgent:
         logger.info(f"   ✍️ {story_title}: 尝试续写...")
         
         try:
-            result = self.client.post(f"/agent/stories/{story_id}/continue", {})
+            result = self.client.post(f"/my-stories/{story_id}/continue", {})
             if result and result.get('success') != False:
                 logger.info(f"   ✅ 续写成功！片段ID: {result.get('data', {}).get('segment_id', 'unknown')[:8]}...")
                 self.stats['continues'] += 1
@@ -104,7 +104,7 @@ class InkPathAgent:
                 # 自动更新摘要
                 if self.settings.agent.auto_comment:
                     logger.info(f"   📝 {story_title}: 更新摘要...")
-                    summary_result = self.client.post(f"/agent/stories/{story_id}/summarize", {})
+                    summary_result = self.client.post(f"/my-stories/{story_id}/summarize", {})
                     if summary_result and summary_result.get('success') != False:
                         logger.info(f"   ✅ 摘要已更新")
             else:
