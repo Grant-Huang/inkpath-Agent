@@ -213,31 +213,35 @@ def api_home():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/stories')
+def _get_inkpath_headers():
+    """获取 InkPath API 请求头"""
+    config = load_config()
+    api_key = config['api'].get('api_key', '')
+    if not api_key or api_key == 'your_api_key_here':
+        return None, None, '未配置 API Key'
+    base_url = config['api'].get('base_url', 'https://inkpath-api.onrender.com/api/v1').rstrip('/')
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+    return base_url, headers, None
+
+
+@app.route('/api/stories', methods=['GET', 'POST'])
 def api_stories():
-    """获取故事列表"""
+    """GET: 获取故事列表 | POST: 人类创作者创建故事"""
+    if request.method == 'POST':
+        return _api_create_story()
     try:
-        config = load_config()
-        api_key = config['api'].get('api_key', '')
-        
-        if not api_key or api_key == 'your_api_key_here':
-            return jsonify({'error': '未配置 API Key'}), 400
-        
-        base_url = config['api'].get('base_url', 'https://inkpath-api.onrender.com/api/v1')
+        base_url, headers, err = _get_inkpath_headers()
+        if err:
+            return jsonify({'error': err}), 400
         import requests
-        
-        resp = requests.get(
-            f'{base_url}/stories?limit=100',
-            headers={'Authorization': f'Bearer {api_key}'},
-            timeout=10
-        )
-        
+        resp = requests.get(f'{base_url}/stories?limit=100', headers=headers, timeout=10)
         if resp.status_code != 200:
             return jsonify({'error': '获取失败'}), 500
-        
         data = resp.json()
         stories = data.get('data', {}).get('stories', [])
-        
         return jsonify({
             'stories': [
                 {
@@ -250,17 +254,175 @@ def api_stories():
                 for s in stories
             ]
         })
-            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def _api_create_story():
+    """人类创作者：创建故事"""
+    try:
+        base_url, headers, err = _get_inkpath_headers()
+        if err:
+            return jsonify({'error': err}), 400
+        
+        data = request.get_json() or {}
+        title = (data.get('title') or '').strip()
+        background = (data.get('background') or '').strip()
+        style_rules = (data.get('style_rules') or '').strip()
+        
+        if not title or len(title) > 100:
+            return jsonify({'error': '标题必填，1-100 字符'}), 400
+        if not background or len(background) < 10:
+            return jsonify({'error': '背景必填，至少 10 字符'}), 400
+        
+        import requests
+        payload = {
+            'title': title,
+            'background': background,
+            'language': data.get('language', 'zh'),
+            'min_length': data.get('min_length', 150),
+            'max_length': data.get('max_length', 500),
+        }
+        if style_rules:
+            payload['style_rules'] = style_rules
+        
+        resp = requests.post(f'{base_url}/stories', json=payload, headers=headers, timeout=60)
+        
+        if resp.status_code in (200, 201):
+            result = resp.json()
+            story = result.get('data', result)
+            return jsonify({'story': story, 'message': '故事创建成功'})
+        err_body = resp.json() if resp.headers.get('content-type', '').startswith('application/json') else {}
+        msg = err_body.get('error', {}).get('message', resp.text[:200])
+        return jsonify({'error': msg}), resp.status_code if resp.status_code < 500 else 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/stories/<story_id>/branches', methods=['GET', 'POST'])
+def api_story_branches(story_id):
+    """GET: 获取分支列表 | POST: 创建新分支"""
+    base_url, headers, err = _get_inkpath_headers()
+    if err:
+        return jsonify({'error': err}), 400
+    import requests
+
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        title = (data.get('title') or '').strip()
+        content = (data.get('content') or '').strip()
+        fork_at_segment_id = data.get('fork_at_segment_id')
+        if not title:
+            return jsonify({'error': '分支标题必填'}), 400
+        if not content:
+            return jsonify({'error': '创建分支需提供第一段续写内容'}), 400
+        payload = {'title': title, 'content': content}
+        if fork_at_segment_id:
+            payload['fork_at_segment_id'] = fork_at_segment_id
+        resp = requests.post(f'{base_url}/stories/{story_id}/branches', json=payload, headers=headers, timeout=120)
+        if resp.status_code in (200, 201):
+            result = resp.json()
+            return jsonify({'message': '分支创建成功', 'data': result.get('data', result)})
+        err_body = resp.json() if resp.headers.get('content-type', '').startswith('application/json') else {}
+        msg = err_body.get('error', {}).get('message', resp.text[:200])
+        return jsonify({'error': msg}), resp.status_code if resp.status_code < 500 else 500
+
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        resp = requests.get(f'{base_url}/stories/{story_id}/branches?limit={limit}', headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return jsonify({'error': '获取分支失败'}), 500
+        data = resp.json()
+        branches = data.get('data', {}).get('branches', [])
+        return jsonify({'branches': branches})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/branches/<branch_id>/full-story')
+def api_branch_full_story(branch_id):
+    """获取分支完整故事内容"""
+    try:
+        base_url, headers, err = _get_inkpath_headers()
+        if err:
+            return jsonify({'error': err}), 400
+        
+        import requests
+        resp = requests.get(f'{base_url}/branches/{branch_id}/full-story', headers=headers, timeout=30)
+        
+        if resp.status_code != 200:
+            return jsonify({'error': '获取故事内容失败'}), 500
+        
+        data = resp.json()
+        return jsonify(data.get('data', data))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/branches/<branch_id>/join', methods=['POST'])
+def api_branch_join(branch_id):
+    """加入分支（续写前必须调用）"""
+    try:
+        base_url, headers, err = _get_inkpath_headers()
+        if err:
+            return jsonify({'error': err}), 400
+        
+        data = request.get_json() or {}
+        role = data.get('role', 'narrator')
+        
+        import requests
+        resp = requests.post(f'{base_url}/branches/{branch_id}/join', json={'role': role}, headers=headers, timeout=60)
+        
+        if resp.status_code in (200, 201):
+            result = resp.json()
+            return jsonify({'message': '已加入分支', 'data': result.get('data', result)})
+        err_body = resp.json() if resp.headers.get('content-type', '').startswith('application/json') else {}
+        msg = err_body.get('error', {}).get('message', resp.text[:200])
+        return jsonify({'error': msg}), resp.status_code if resp.status_code < 500 else 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/branches/<branch_id>/segments', methods=['POST'])
+def api_branch_submit_segment(branch_id):
+    """提交续写片段"""
+    try:
+        base_url, headers, err = _get_inkpath_headers()
+        if err:
+            return jsonify({'error': err}), 400
+        
+        data = request.get_json() or {}
+        content = (data.get('content') or '').strip()
+        is_starter = data.get('is_starter', False)
+        
+        if not content:
+            return jsonify({'error': '续写内容不能为空'}), 400
+        if not is_starter and (len(content) < 150 or len(content) > 500):
+            return jsonify({'error': '续写内容需 150-500 字（is_starter 时可更长）'}), 400
+        
+        import requests
+        payload = {'content': content, 'is_starter': is_starter}
+        resp = requests.post(f'{base_url}/branches/{branch_id}/segments', json=payload, headers=headers, timeout=300)
+        
+        if resp.status_code in (200, 201):
+            result = resp.json()
+            return jsonify({'message': '续写提交成功', 'data': result.get('data', result)})
+        err_body = resp.json() if resp.headers.get('content-type', '').startswith('application/json') else {}
+        msg = err_body.get('error', {}).get('message', resp.text[:200])
+        return jsonify({'error': msg}), resp.status_code if resp.status_code < 500 else 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 def create_templates():
-    """创建模板目录和文件"""
+    """创建模板目录和文件（若 index.html 已存在则不覆盖，避免丢失人类创作者等定制）"""
     template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
     os.makedirs(template_dir, exist_ok=True)
-    
-    # index.html
+    index_path = os.path.join(template_dir, 'index.html')
+    if os.path.exists(index_path):
+        return  # 保留现有模板
+
+    # index.html（仅首次创建时使用）
     html = '''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
