@@ -24,7 +24,8 @@ class InkPathAgent:
             provider=settings.llm.provider,
             api_key=settings.llm.api_key,
             model=settings.llm.model,
-            temperature=settings.llm.temperature
+            temperature=settings.llm.temperature,
+            base_url=settings.llm.base_url  # 支持本地 Qwen
         )
         
         # 统计

@@ -38,6 +38,7 @@ class LLMConfig:
     api_key: str = ""
     model: str = "gpt-4o"
     temperature: float = 0.7
+    base_url: str = None  # 支持本地 Qwen
 
 
 @dataclass
@@ -78,7 +79,8 @@ def load_settings(config_path: str = "config.yaml") -> AppSettings:
         provider=llm_cfg.get("provider", "openai"),
         api_key=os.getenv("OPENAI_API_KEY") or llm_cfg.get("api_key", ""),
         model=llm_cfg.get("model", "gpt-4o"),
-        temperature=float(llm_cfg.get("temperature", 0.7))
+        temperature=float(llm_cfg.get("temperature", 0.7),
+        base_url=llm_cfg.get("base_url") or os.getenv("LLM_BASE_URL")
     )
     
     agent = AgentConfig(

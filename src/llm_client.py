@@ -13,17 +13,21 @@ except ImportError:
 class LLMClient:
     """极简 LLM 客户端"""
     
-    def __init__(self, provider: str, api_key: str, model: str = "gpt-4o", temperature: float = 0.7):
+    def __init__(self, provider: str, api_key: str, model: str = "gpt-4o", 
+                 temperature: float = 0.7, base_url: str = None):
         self.provider = provider.lower()
         self.api_key = api_key
         self.model = model
         self.temperature = temperature
+        self.base_url = base_url
         
         # 初始化客户端
         if self.provider == "openai" and OpenAI:
-            self.client = OpenAI(api_key=api_key)
+            self.client = OpenAI(
+                api_key=api_key or "dummy",
+                base_url=base_url  # 支持本地 Qwen
+            )
         elif self.provider == "anthropic" and api_key:
-            # Anthropic 兼容 OpenAI API 格式
             self.client = None
         else:
             self.client = None
@@ -45,8 +49,29 @@ class LLMClient:
             return await self._call_openai(prompt)
         elif self.provider == "anthropic":
             return await self._call_anthropic(prompt)
+        elif self.base_url:
+            return await self._call_local(prompt)
         else:
             return await self._call_generic(prompt)
+    
+    async def _call_local(self, prompt: str) -> str:
+        """本地 Qwen（兼容 OpenAI API）"""
+        try:
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key or 'dummy'}"},
+                json={
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": self.temperature,
+                    "max_tokens": 1000
+                },
+                timeout=120
+            )
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            raise Exception(f"本地 LLM 错误: {e}")
     
     async def _call_openai(self, prompt: str) -> str:
         """调用 OpenAI"""
@@ -104,6 +129,6 @@ class LLMClient:
 
 
 def create_llm_client(provider: str, api_key: str, model: str = "gpt-4o", 
-                      temperature: float = 0.7) -> LLMClient:
+                      temperature: float = 0.7, base_url: str = None) -> LLMClient:
     """创建 LLM 客户端"""
-    return LLMClient(provider, api_key, model, temperature)
+    return LLMClient(provider, api_key, model, temperature, base_url)
