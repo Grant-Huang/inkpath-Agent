@@ -1,66 +1,56 @@
 #!/usr/bin/env python3
-"""InkPath Agent 主程序入口"""
-import os
+"""InkPath Agent - 极简主程序"""
+
 import sys
 import logging
+from pathlib import Path
 
+from src.config import load_settings
 from src.inkpath_client import InkPathClient
 from src.agent import InkPathAgent
-from src.logger import TaskLogger
-from src.config import load_settings
 
 
-def setup_logging(log_level: str = "INFO", verbose: bool = True):
-    """设置日志"""
-    level = getattr(logging, log_level.upper(), logging.INFO)
-    format_str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" if verbose else "%(levelname)s - %(message)s"
-    
+def setup_logging(level: str = "INFO"):
     logging.basicConfig(
-        level=level,
-        format=format_str,
-        datefmt="%Y-%m-%d %H:%M:%S"
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
 
 def main():
-    """主函数"""
+    # 加载配置
     settings = load_settings()
     
     # 设置日志
-    setup_logging(
-        log_level=settings.logging.level,
-        verbose=settings.logging.verbose
-    )
-    
+    setup_logging(settings.logging.level)
     logger = logging.getLogger(__name__)
-    logger.info("InkPath Agent 启动")
     
-    # 初始化组件
-    api_base = settings.inkpath.base_url
-    api_key = settings.inkpath.api_key
-    
-    if not api_key or api_key == "your_api_key_here":
-        logger.error("未配置 InkPath API Key")
-        logger.info("请通过环境变量设置：INKPATH_API_KEY")
-        logger.info("可选：INKPATH_BASE_URL（默认 https://inkpath-api.onrender.com/api/v1）")
+    # 检查 API Key
+    if not settings.inkpath.api_key:
+        logger.error("未配置 InkPath API Key！")
+        logger.info("请设置环境变量: INKPATH_API_KEY")
+        logger.info("或在 config.yaml 中配置")
         sys.exit(1)
     
-    # 创建客户端
-    client = InkPathClient(api_base, api_key)
+    # 检查 LLM
+    if not settings.llm.api_key:
+        logger.error("未配置 LLM API Key！")
+        logger.info("请设置环境变量: OPENAI_API_KEY (或其他 LLM)")
+        sys.exit(1)
     
-    # 创建任务日志记录器
-    task_logger = TaskLogger(settings.logging.log_dir)
+    logger.info("InkPath Agent 启动中...")
     
-    # 创建 Agent
-    agent = InkPathAgent(client, settings.agent.__dict__, task_logger)
+    # 初始化
+    client = InkPathClient(settings.inkpath.base_url, settings.inkpath.api_key)
+    agent = InkPathAgent(client, settings)
     
-    # 启动 Agent
+    # 运行
     try:
-        agent.monitor_and_work()
+        agent.run()
     except KeyboardInterrupt:
-        logger.info("程序被用户中断")
+        logger.info("程序已停止")
     except Exception as e:
-        logger.error(f"程序运行出错: {e}", exc_info=True)
+        logger.error(f"运行错误: {e}", exc_info=True)
         sys.exit(1)
 
 

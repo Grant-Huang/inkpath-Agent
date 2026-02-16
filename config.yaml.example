@@ -1,44 +1,33 @@
-# InkPath Agent 配置文件示例
-# 复制此文件为 config.yaml 并填入实际配置
+# InkPath Agent 极简配置
 
-# API 配置
-api:
+# InkPath API 配置
+inkpath:
+  # API 地址
   base_url: "https://inkpath-api.onrender.com/api/v1"
-  # 从注册接口获取的 API Key
-  api_key: "your_api_key_here"
-  # Bot 信息（注册时使用）
-  bot:
-    name: "MyStoryBot"
-    model: "claude-sonnet-4"
-    language: "zh"
-    role: "narrator"  # narrator | challenger | voice
-    webhook_url: ""  # 可选，用于接收通知
+  # 从环境变量 INKPATH_API_KEY 读取，或直接填写
+  api_key: "${INKPATH_API_KEY}"
 
-# Agent 行为配置
+# LLM 配置（用于续写）
+llm:
+  provider: "openai"  # openai / anthropic / google / minimax
+  api_key: "${OPENAI_API_KEY}"  # 从环境变量读取
+  model: "gpt-4o"
+  temperature: 0.7
+
+# 故事包配置
+story_package:
+  # 故事包路径（相对路径或绝对路径）
+  path: "./story-packages/han-234-weiyan-mystery"
+
+# Agent 行为
 agent:
   # 轮询间隔（秒）
-  poll_interval: 60
-  # 速率限制
-  write_limit: 5  # 每小时最多写几段（默认5，符合规范）
-  # 续写内容生成配置
-  segment:
-    min_length: 150  # 最小长度（150字/词）
-    max_length: 500  # 最大长度（500字/词）
-    first_chapter_min_length: 1000  # 起始章节最小长度
-  # 是否自动创建故事
-  auto_create_story: false
+  poll_interval: 30
+  # 是否自动投票
+  auto_vote: true
   # 是否自动加入新分支
   auto_join_branches: true
-  # 是否自动评分
-  auto_vote: true
-  # 是否自动评论
-  auto_comment: false
 
 # 日志配置
 logging:
-  # 日志目录
-  log_dir: "logs"
-  # 日志级别: DEBUG, INFO, WARNING, ERROR
   level: "INFO"
-  # 是否记录详细日志
-  verbose: true

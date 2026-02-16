@@ -1,85 +1,94 @@
-"""配置加载模块（优先环境变量，其次 config.yaml）"""
-
-from __future__ import annotations
+"""配置加载模块（支持环境变量和 config.yaml）"""
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
-
+from typing import Dict, Any, Optional
 import yaml
 from dotenv import load_dotenv
-
 
 load_dotenv()
 
 
-def _load_yaml_if_exists(path: str) -> Dict[str, Any]:
+def _expand_env(value: Any) -> Any:
+    """展开环境变量引用，如 ${VAR_NAME}"""
+    if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+        env_var = value[2:-1]
+        return os.getenv(env_var, "")
+    return value
+
+
+def _load_yaml(path: str) -> Dict[str, Any]:
     if not os.path.exists(path):
         return {}
     with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-    return data or {}
+        data = yaml.safe_load(f) or {}
+    # 展开环境变量
+    return {k: _expand_env(v) for k, v in data.items()}
 
 
-@dataclass(frozen=True)
-class InkPathSettings:
-    base_url: str
-    api_key: str
+@dataclass
+class InkPathConfig:
+    base_url: str = "https://inkpath-api.onrender.com/api/v1"
+    api_key: str = ""
 
 
-@dataclass(frozen=True)
-class AgentSettings:
-    poll_interval: int = 60
-    auto_create_story: bool = False
-    auto_join_branches: bool = True
+@dataclass
+class LLMConfig:
+    provider: str = "openai"
+    api_key: str = ""
+    model: str = "gpt-4o"
+    temperature: float = 0.7
+
+
+@dataclass
+class AgentConfig:
+    poll_interval: int = 30
     auto_vote: bool = True
-    auto_comment: bool = False
+    auto_join_branches: bool = True
 
 
-@dataclass(frozen=True)
-class LoggingSettings:
-    log_dir: str = "logs"
+@dataclass
+class LoggingConfig:
     level: str = "INFO"
-    verbose: bool = True
 
 
-@dataclass(frozen=True)
+@dataclass
 class AppSettings:
-    inkpath: InkPathSettings
-    agent: AgentSettings
-    logging: LoggingSettings
+    inkpath: InkPathConfig
+    llm: LLMConfig
+    agent: AgentConfig
+    logging: LoggingConfig
 
 
 def load_settings(config_path: str = "config.yaml") -> AppSettings:
-    """
-    加载配置：
-    - 优先使用环境变量：INKPATH_API_KEY / INKPATH_BASE_URL
-    - 若存在 config.yaml，则作为默认值补充
-    """
-    cfg = _load_yaml_if_exists(config_path)
-
-    api_cfg: Dict[str, Any] = cfg.get("api", {}) if isinstance(cfg, dict) else {}
-    agent_cfg: Dict[str, Any] = cfg.get("agent", {}) if isinstance(cfg, dict) else {}
-    log_cfg: Dict[str, Any] = cfg.get("logging", {}) if isinstance(cfg, dict) else {}
-
-    base_url = os.getenv("INKPATH_BASE_URL") or api_cfg.get("base_url") or "https://inkpath-api.onrender.com/api/v1"
-    api_key = os.getenv("INKPATH_API_KEY") or api_cfg.get("api_key") or ""
-
-    inkpath = InkPathSettings(base_url=str(base_url), api_key=str(api_key))
-
-    agent = AgentSettings(
-        poll_interval=int(agent_cfg.get("poll_interval", 60)),
-        auto_create_story=bool(agent_cfg.get("auto_create_story", False)),
-        auto_join_branches=bool(agent_cfg.get("auto_join_branches", True)),
+    """加载配置，优先环境变量"""
+    cfg = _load_yaml(config_path)
+    
+    inkpath_cfg = cfg.get("inkpath", {})
+    llm_cfg = cfg.get("llm", {})
+    agent_cfg = cfg.get("agent", {})
+    log_cfg = cfg.get("logging", {})
+    
+    inkpath = InkPathConfig(
+        base_url=os.getenv("INKPATH_BASE_URL") or inkpath_cfg.get("base_url", ""),
+        api_key=os.getenv("INKPATH_API_KEY") or inkpath_cfg.get("api_key", "")
+    )
+    
+    llm = LLMConfig(
+        provider=llm_cfg.get("provider", "openai"),
+        api_key=os.getenv("OPENAI_API_KEY") or llm_cfg.get("api_key", ""),
+        model=llm_cfg.get("model", "gpt-4o"),
+        temperature=float(llm_cfg.get("temperature", 0.7))
+    )
+    
+    agent = AgentConfig(
+        poll_interval=int(agent_cfg.get("poll_interval", 30)),
         auto_vote=bool(agent_cfg.get("auto_vote", True)),
-        auto_comment=bool(agent_cfg.get("auto_comment", False)),
+        auto_join_branches=bool(agent_cfg.get("auto_join_branches", True))
     )
-
-    logging = LoggingSettings(
-        log_dir=str(log_cfg.get("log_dir", "logs")),
-        level=str(log_cfg.get("level", "INFO")),
-        verbose=bool(log_cfg.get("verbose", True)),
+    
+    logging = LoggingConfig(
+        level=log_cfg.get("level", "INFO")
     )
-
-    return AppSettings(inkpath=inkpath, agent=agent, logging=logging)
-
+    
+    return AppSettings(inkpath=inkpath, llm=llm, agent=agent, logging=logging)

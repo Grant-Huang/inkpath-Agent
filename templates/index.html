@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InkPath Agent 控制台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- 标题 -->
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <h1 class="text-3xl font-bold">InkPath Agent</h1>
+                <p class="text-gray-400">本地控制台</p>
+            </div>
+            <div id="status" class="px-4 py-2 rounded-lg bg-gray-700">
+                状态: <span id="status-text">检查中...</span>
+            </div>
+        </div>
+        
+        <!-- API Key 配置 -->
+        <div class="bg-gray-800 rounded-lg p-6 mb-6">
+            <h2 class="text-lg font-medium mb-4">API 配置</h2>
+            <div class="flex gap-4">
+                <input 
+                    type="password" 
+                    id="api-key" 
+                    placeholder="输入 InkPath API Key"
+                    class="flex-1 px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none"
+                >
+                <button 
+                    onclick="startAgent()"
+                    class="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700"
+                >
+                    启动
+                </button>
+                <button 
+                    onclick="stopAgent()"
+                    class="px-6 py-2 bg-red-600 rounded-lg hover:bg-red-700"
+                >
+                    停止
+                </button>
+            </div>
+        </div>
+        
+        <!-- 首页数据 -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6" id="home-stats">
+            <div class="bg-gray-800 rounded-lg p-6">
+                <div class="text-gray-400 text-sm">Agent 名称</div>
+                <div class="text-2xl font-bold" id="agent-name">-</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-6">
+                <div class="text-gray-400 text-sm">故事总数</div>
+                <div class="text-2xl font-bold" id="stories-total">-</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-6">
+                <div class="text-gray-400 text-sm">运行中</div>
+                <div class="text-2xl font-bold text-green-400" id="stories-running">-</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-6">
+                <div class="text-gray-400 text-sm">需要关注</div>
+                <div class="text-2xl font-bold text-yellow-400" id="stories-attention">-</div>
+            </div>
+        </div>
+        
+        <!-- 故事列表 -->
+        <div class="bg-gray-800 rounded-lg p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-medium">故事列表</h2>
+                <button onclick="loadStories()" class="px-4 py-2 bg-gray-700 rounded-lg hover:bg-gray-600">
+                    刷新
+                </button>
+            </div>
+            <div id="stories-list" class="space-y-3">
+                <div class="text-gray-500 text-center py-8">加载中...</div>
+            </div>
+        </div>
+        
+        <!-- 警告 -->
+        <div id="alerts" class="mb-6 hidden">
+            <h2 class="text-lg font-medium mb-4 text-yellow-400">⚠️ 需要关注</h2>
+            <div id="alerts-list" class="space-y-2"></div>
+        </div>
+        
+        <!-- 日志 -->
+        <div class="bg-gray-800 rounded-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-medium">运行日志</h2>
+                <button onclick="loadLogs()" class="px-4 py-2 bg-gray-700 rounded-lg hover:bg-gray-600">
+                    刷新
+                </button>
+            </div>
+            <div id="logs" class="h-64 overflow-y-auto font-mono text-sm bg-gray-900 rounded-lg p-4 space-y-1">
+                <div class="text-gray-500">等待日志...</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let refreshInterval;
+        
+        async function api(url, options = {}) {
+            const response = await fetch(url, {
+                ...options,
+                headers: {'Content-Type': 'application/json'},
+                ...options
+            });
+            return response.json();
+        }
+        
+        async function loadStatus() {
+            const data = await api('/api/status');
+            const statusEl = document.getElementById('status-text');
+            statusEl.textContent = data.message || data.status;
+            statusEl.className = data.running ? 'text-green-400' : 'text-gray-400';
+        }
+        
+        async function loadHome() {
+            const data = await api('/api/home');
+            if (data.error) {
+                console.log('首页数据获取失败:', data.error);
+                return;
+            }
+            
+            document.getElementById('agent-name').textContent = data.agent?.name || '-';
+            document.getElementById('stories-total').textContent = data.stories_summary?.total || 0;
+            document.getElementById('stories-running').textContent = data.stories_summary?.running || 0;
+            document.getElementById('stories-attention').textContent = data.stories_summary?.needs_attention || 0;
+            
+            // 警告
+            const alertsEl = document.getElementById('alerts');
+            const alertsListEl = document.getElementById('alerts-list');
+            if (data.alerts?.length > 0) {
+                alertsEl.classList.remove('hidden');
+                alertsListEl.innerHTML = data.alerts.map(a => 
+                    `<div class="bg-yellow-900/50 border border-yellow-700 rounded-lg p-3">${a.message}</div>`
+                ).join('');
+            } else {
+                alertsEl.classList.add('hidden');
+            }
+        }
+        
+        async function loadStories() {
+            const data = await api('/api/stories');
+            const listEl = document.getElementById('stories-list');
+            
+            if (data.error || !data.stories) {
+                listEl.innerHTML = `<div class="text-gray-500 text-center py-8">${data.error || '暂无故事'}</div>`;
+                return;
+            }
+            
+            if (data.stories.length === 0) {
+                listEl.innerHTML = `<div class="text-gray-500 text-center py-8">暂无分配的故事</div>`;
+                return;
+            }
+            
+            listEl.innerHTML = data.stories.map(s => `
+                <div class="bg-gray-700 rounded-lg p-4 flex items-center justify-between">
+                    <div>
+                        <div class="font-medium">${s.title}</div>
+                        <div class="text-sm text-gray-400 mt-1">${s.summary || '暂无摘要'}</div>
+                        <div class="text-xs text-gray-500 mt-1">片段数: ${s.segments_count}</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="px-2 py-1 rounded text-xs ${s.auto_continue ? 'bg-green-900 text-green-400' : 'bg-gray-600 text-gray-400'}">
+                            ${s.auto_continue ? '自动' : '手动'}
+                        </span>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        async function loadLogs() {
+            const data = await api('/api/logs?limit=30');
+            const logsEl = document.getElementById('logs');
+            
+            if (data.logs?.length > 0) {
+                logsEl.innerHTML = data.logs.map(log => 
+                    `<div class="text-gray-400">[${log.timestamp}] ${log.message}</div>`
+                ).join('');
+            } else {
+                logsEl.innerHTML = `<div class="text-gray-500">暂无日志</div>`;
+            }
+        }
+        
+        async function startAgent() {
+            const apiKey = document.getElementById('api-key').value.trim();
+            const result = await api('/api/start', {
+                method: 'POST',
+                body: JSON.stringify({api_key: apiKey})
+            });
+            
+            if (result.error) {
+                alert(result.error);
+            } else {
+                startRefresh();
+            }
+        }
+        
+        async function stopAgent() {
+            await api('/api/stop', {method: 'POST'});
+            stopRefresh();
+        }
+        
+        function startRefresh() {
+            loadStatus();
+            loadHome();
+            loadStories();
+            loadLogs();
+            
+            refreshInterval = setInterval(() => {
+                loadStatus();
+                loadHome();
+            }, 5000);
+        }
+        
+        function stopRefresh() {
+            clearInterval(refreshInterval);
+            loadStatus();
+        }
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStatus();
+            loadHome();
+            loadStories();
+        });
+    </script>
+</body>
+</html>
