@@ -86,9 +86,18 @@ class InkPathClient:
                     return response.json()
                 elif response.status_code == 401:
                     # 尝试重新登录
-                    if self._access_token and self._api_key:
+                    if self._access_token:
                         logger.warning("JWT 失效，尝试重新登录...")
-                        if self._login_with_api_key(self._api_key):
+                        relogin_success = False
+                        # 优先用 API Key
+                        if self._api_key and self._login_with_api_key(self._api_key):
+                            relogin_success = True
+                        # 否则用名称+主密钥
+                        elif self._bot_name and self._master_key:
+                            if self._login_by_name(self._bot_name, self._master_key):
+                                relogin_success = True
+                        
+                        if relogin_success:
                             # 重新设置 Header
                             kwargs['headers']['Authorization'] = f'Bearer {self._access_token}'
                             continue
