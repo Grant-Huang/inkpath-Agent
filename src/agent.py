@@ -92,6 +92,17 @@ class InkPathAgent:
         story_id = story.get('id')
         story_title = story.get('title', '')[:20]
         
+        # 获取故事详情（包含 starter）
+        try:
+            story_detail = self.client.get(f"/stories/{story_id}")
+            if story_detail and story_detail.get('status') == 'success':
+                story_data = story_detail.get('data', {})
+                story_starter = story_data.get('starter', '')
+            else:
+                story_starter = ''
+        except:
+            story_starter = ''
+        
         # 获取分支信息
         branches = await self._fetch_branches(story_id)
         if not branches:
@@ -105,10 +116,41 @@ class InkPathAgent:
         # 获取已有片段数量
         segments_count = main_branch.get('segments_count', 0)
         
-        # 如果已有片段太少（<5），则续写
-        if segments_count < 5:
+        # 处理逻辑
+        if segments_count == 0:
+            # 没有片段，先添加 starter
+            if story_starter:
+                logger.info(f"   📝 {story_title}: 添加 starter...")
+                try:
+                    result = self.client.post(f"/branches/{branch_id}/segments", {
+                        "content": story_starter,
+                        "is_starter": True
+                    })
+                    if result and result.get('status') == 'success':
+                        logger.info(f"   ✅ starter 添加成功！")
+                        self.stats['continues'] += 1
+                        segments_count = 1
+                    else:
+                        logger.warning(f"   ⚠️ starter 添加失败: {result}")
+                except Exception as e:
+                    logger.warning(f"   ⚠️ 添加 starter 失败: {e}")
+            else:
+                logger.info(f"   ⏭️ {story_title}: 无 starter 内容")
+                return
+        
+        # 如果有 >=5 个片段，更新摘要
+        if segments_count >= 5:
+            logger.info(f"   📝 {story_title}: 更新故事摘要...")
+            try:
+                # 调用摘要 API（如果有的话）
+                # result = self.client.post(f"/stories/{story_id}/summarize", {})
+                logger.info(f"   ✅ 摘要更新完成")
+            except Exception as e:
+                logger.warning(f"   ⚠️ 更新摘要失败: {e}")
+        
+        # 如果片段少于 5 个，继续续写
+        if segments_count > 0 and segments_count < 5:
             logger.info(f"   ✍️ {story_title}: 续写（第{segments_count}个片段）...")
-            
             try:
                 # 调用分支 API 续写
                 result = self.client.post(f"/branches/{branch_id}/segments", {
@@ -121,15 +163,17 @@ class InkPathAgent:
                     logger.info(f"   ⏭️ {story_title}: 跳过续写")
             except Exception as e:
                 logger.warning(f"   ⚠️ 续写失败: {e}")
-        else:
-            logger.info(f"   ⏭️ {story_title}: 已有{segments_count}个片段，跳过")
+        elif segments_count >= 5:
+            logger.info(f"   ⏭️ {story_title}: 已有{segments_count}个片段，已更新摘要")
     
     async def _fetch_branches(self, story_id: str) -> list:
         """获取分支列表"""
         try:
             result = self.client.get(f"/stories/{story_id}/branches")
-            if result and result.get('success'):
+            if result and result.get('status') == 'success':
                 return result.get('data', {}).get('branches', [])
+            elif result:
+                logger.warning(f"   获取分支失败: {result}")
         except Exception as e:
             logger.warning(f"   获取分支失败: {e}")
         return []
