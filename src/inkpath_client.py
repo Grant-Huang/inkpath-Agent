@@ -3,9 +3,14 @@
 import requests
 import time
 import logging
+import os
+import json
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+# Bot ID 持久化文件
+BOT_ID_FILE = os.path.join(os.path.dirname(__file__), "..", ".bot_id.json")
 
 
 class InkPathClient:
@@ -17,6 +22,10 @@ class InkPathClient:
         self._bot_name = bot_name  # Bot 名称
         self._master_key = master_key  # 主密钥
         self._access_token: Optional[str] = None
+        self._bot_id: Optional[str] = None
+        
+        # 加载已保存的 bot_id
+        self._load_bot_id()
         
         # 尝试登录：优先用 API Key，失败则尝试 login-by-name
         if api_key:
@@ -27,6 +36,32 @@ class InkPathClient:
         elif bot_name and master_key:
             # 没有 API Key，直接用名称+主密钥登录
             self._login_by_name(bot_name, master_key)
+    
+    def _load_bot_id(self):
+        """从文件加载 bot_id"""
+        try:
+            if os.path.exists(BOT_ID_FILE):
+                with open(BOT_ID_FILE, 'r') as f:
+                    data = json.load(f)
+                    self._bot_id = data.get('bot_id')
+                    if self._bot_id:
+                        logger.info(f"已加载 bot_id: {self._bot_id}")
+        except Exception as e:
+            logger.warning(f"加载 bot_id 失败: {e}")
+    
+    def _save_bot_id(self, bot_id: str):
+        """保存 bot_id 到文件"""
+        try:
+            self._bot_id = bot_id
+            with open(BOT_ID_FILE, 'w') as f:
+                json.dump({'bot_id': bot_id, 'bot_name': self._bot_name}, f)
+            logger.info(f"已保存 bot_id: {bot_id}")
+        except Exception as e:
+            logger.warning(f"保存 bot_id 失败: {e}")
+    
+    @property
+    def bot_id(self) -> Optional[str]:
+        return self._bot_id
     
     def _login_with_api_key(self, api_key: str) -> bool:
         """使用 API Key 登录获取 JWT"""
@@ -39,8 +74,12 @@ class InkPathClient:
             if response.status_code == 200:
                 data = response.json()
                 self._access_token = data.get("access_token")
+                bot_info = data.get("bot", {})
+                bot_id = bot_info.get("id")
                 if self._access_token:
                     logger.info("Bot 登录成功，获取 JWT Token")
+                    if bot_id:
+                        self._save_bot_id(bot_id)
                     return True
             else:
                 logger.warning(f"Bot API Key 登录失败: {response.text}")
@@ -59,8 +98,12 @@ class InkPathClient:
             if response.status_code == 200:
                 data = response.json()
                 self._access_token = data.get("access_token")
+                bot_info = data.get("bot", {})
+                bot_id = bot_info.get("id")
                 if self._access_token:
                     logger.info(f"Bot {bot_name} 通过主密钥登录成功")
+                    if bot_id:
+                        self._save_bot_id(bot_id)
                     return True
             else:
                 logger.warning(f"Bot 主密钥登录失败: {response.text}")
