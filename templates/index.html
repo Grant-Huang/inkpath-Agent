@@ -104,6 +104,10 @@
                         <label class="block text-sm text-gray-400 mb-1">写作风格 (可选)</label>
                         <input id="new-story-style" type="text" placeholder="如：克制、冷峻、悬念" class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none">
                     </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">开篇内容 (可选，会自动创建为第一个片段)</label>
+                        <textarea id="new-story-starter" rows="3" placeholder="故事开篇..." class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none resize-none"></textarea>
+                    </div>
                 </div>
                 <div class="flex justify-end gap-2 mt-6">
                     <button onclick="closeCreateStoryModal()" class="px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-500">取消</button>
@@ -275,6 +279,7 @@
             document.getElementById('new-story-title').value = '';
             document.getElementById('new-story-background').value = '';
             document.getElementById('new-story-style').value = '';
+            document.getElementById('new-story-starter').value = '';
             document.getElementById('create-story-modal').classList.remove('hidden');
             document.getElementById('create-story-modal').classList.add('flex');
         }
@@ -286,11 +291,14 @@
             const title = document.getElementById('new-story-title').value.trim();
             const background = document.getElementById('new-story-background').value.trim();
             const style_rules = document.getElementById('new-story-style').value.trim();
+            const starter = document.getElementById('new-story-starter').value.trim();
             if (!title) { alert('请输入标题'); return; }
             if (!background || background.length < 10) { alert('背景至少 10 字'); return; }
+            const payload = { title, background, style_rules };
+            if (starter) payload.starter = starter;
             const result = await api('/api/stories', {
                 method: 'POST',
-                body: JSON.stringify({ title, background, style_rules })
+                body: JSON.stringify(payload)
             });
             if (result.error) {
                 alert(result.error);
@@ -347,16 +355,6 @@
             }
             if (isStarter && content.length < 150) {
                 statusEl.textContent = '开篇建议至少 150 字，当前 ' + content.length + ' 字';
-                statusEl.className = 'text-yellow-400';
-            }
-            statusEl.textContent = '正在加入分支...';
-            statusEl.className = 'text-gray-400';
-            const joinRes = await api('/api/branches/' + continueCtx.branchId + '/join', {
-                method: 'POST',
-                body: JSON.stringify({ role: 'narrator' })
-            });
-            if (joinRes.error) {
-                statusEl.textContent = '加入失败: ' + joinRes.error;
                 statusEl.className = 'text-yellow-400';
             }
             statusEl.textContent = '正在提交' + (isStarter ? '开篇' : '续写') + '...';
