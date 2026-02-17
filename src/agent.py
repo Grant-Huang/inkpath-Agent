@@ -77,11 +77,11 @@ class InkPathAgent:
             await asyncio.sleep(self.settings.agent.poll_interval)
     
     async def _fetch_stories(self) -> list:
-        """获取故事列表"""
+        """获取故事列表 - 获取所有活跃故事"""
         try:
-            # 调用 API 获取分配给此 Bot 的故事
-            result = self.client.get(f"/my-stories")
-            if result and result.get('success'):
+            # 调用 API 获取所有活跃故事
+            result = self.client.get(f"/stories")
+            if result and result.get('status') == 'success':
                 return result.get('data', {}).get('stories', [])
         except Exception as e:
             logger.warning(f"   获取故事列表失败: {e}")
@@ -92,25 +92,37 @@ class InkPathAgent:
         story_id = story.get('id')
         story_title = story.get('title', '')[:20]
         
-        # 调用 API 续写
-        logger.info(f"   ✍️ {story_title}: 尝试续写...")
+        # 获取分支信息
+        branches = await self._fetch_branches(story_id)
+        if not branches:
+            logger.info(f"   ⏭️ {story_title}: 暂无分支")
+            return
         
-        try:
-            result = self.client.post(f"/my-stories/{story_id}/continue", {})
-            if result and result.get('success') != False:
-                logger.info(f"   ✅ 续写成功！片段ID: {result.get('data', {}).get('segment_id', 'unknown')[:8]}...")
-                self.stats['continues'] += 1
-                
-                # 自动更新摘要
-                if self.settings.agent.auto_comment:
-                    logger.info(f"   📝 {story_title}: 更新摘要...")
-                    summary_result = self.client.post(f"/my-stories/{story_id}/summarize", {})
-                    if summary_result and summary_result.get('success') != False:
-                        logger.info(f"   ✅ 摘要已更新")
-            else:
-                logger.info(f"   ⏭️ {story_title}: 跳过续写")
-        except Exception as e:
-            logger.warning(f"   ⚠️ 续写失败: {e}")
+        # 获取主线分支
+        main_branch = next((b for b in branches if b.get('title') == '主线' or b.get('parent_branch_id') is None), branches[0])
+        branch_id = main_branch.get('id')
+        
+        # 获取已有片段数量
+        segments_count = main_branch.get('segments_count', 0)
+        
+        # 如果已有片段太少（<5），则续写
+        if segments_count < 5:
+            logger.info(f"   ✍️ {story_title}: 续写（第{segments_count}个片段）...")
+            
+            try:
+                # 调用分支 API 续写
+                result = self.client.post(f"/branches/{branch_id}/segments", {
+                    "content": "（此处应由 LLM 生成续写内容）"
+                })
+                if result and result.get('status') == 'success':
+                    logger.info(f"   ✅ 续写成功！")
+                    self.stats['continues'] += 1
+                else:
+                    logger.info(f"   ⏭️ {story_title}: 跳过续写")
+            except Exception as e:
+                logger.warning(f"   ⚠️ 续写失败: {e}")
+        else:
+            logger.info(f"   ⏭️ {story_title}: 已有{segments_count}个片段，跳过")
     
     async def _fetch_branches(self, story_id: str) -> list:
         """获取分支列表"""
