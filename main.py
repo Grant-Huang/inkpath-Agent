@@ -45,7 +45,12 @@ def main():
     logger.info("InkPath Agent 启动中...")
     
     # 初始化
-    client = InkPathClient(settings.inkpath.base_url, settings.inkpath.api_key)
+    client = InkPathClient(
+        settings.inkpath.base_url, 
+        settings.inkpath.api_key,
+        settings.inkpath.bot_name,
+        settings.inkpath.master_key
+    )
     agent = InkPathAgent(client, settings)
     
     # 运行

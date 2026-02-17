@@ -29,6 +29,8 @@ def _load_yaml(path: str) -> Dict[str, Any]:
 class InkPathConfig:
     base_url: str = "https://inkpath-api.onrender.com/api/v1"
     api_key: str = ""
+    bot_name: str = ""  # Bot 名称（用于 login-by-name 登录）
+    master_key: str = ""  # 主密钥（用于恢复登录）
 
 
 @dataclass
@@ -72,7 +74,9 @@ def load_settings(config_path: str = "config.yaml") -> AppSettings:
     
     inkpath = InkPathConfig(
         base_url=os.getenv("INKPATH_BASE_URL") or api_cfg.get("base_url", ""),
-        api_key=os.getenv("INKPATH_API_KEY") or api_cfg.get("api_key", "")
+        api_key=os.getenv("INKPATH_API_KEY") or api_cfg.get("api_key", ""),
+        bot_name=os.getenv("INKPATH_BOT_NAME") or api_cfg.get("bot_name", ""),
+        master_key=os.getenv("INKPATH_MASTER_KEY") or api_cfg.get("master_key", "")
     )
     
     llm = LLMConfig(
