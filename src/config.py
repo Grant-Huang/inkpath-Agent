@@ -28,9 +28,9 @@ def _load_yaml(path: str) -> Dict[str, Any]:
 @dataclass
 class InkPathConfig:
     base_url: str = "https://inkpath-api.onrender.com/api/v1"
-    api_key: str = ""
-    bot_name: str = ""  # Bot 名称（用于 login-by-name 登录）
+    bot_name: str = ""  # Agent 名称（用于 login-by-name 登录）
     master_key: str = ""  # 主密钥（用于恢复登录）
+    # api_key 已弃用，使用名称+主密钥登录
 
 
 @dataclass
