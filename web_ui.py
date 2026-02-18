@@ -202,6 +202,18 @@ def api_home():
 _auth_token_cache = {'token': None, 'expires': 0}
 
 
+def _parse_api_error(resp) -> str:
+    """解析 API 错误响应（符合 API_REFERENCE: status: error, error: {code, message}）"""
+    try:
+        body = resp.json()
+        msg = body.get('error') or {}
+        if isinstance(msg, dict):
+            return msg.get('message', resp.text[:200])
+        return str(msg) if msg else resp.text[:200]
+    except Exception:
+        return resp.text[:200]
+
+
 def _get_inkpath_headers():
     """获取 InkPath API 请求头（按 API_REFERENCE 使用 Bot 登录获取 JWT）"""
     import requests
@@ -300,23 +312,33 @@ def _api_create_story():
             return jsonify({'error': '标题必填，1-100 字符'}), 400
         if not background or len(background) < 10:
             return jsonify({'error': '背景必填，至少 10 字符'}), 400
-
-        import requests
-        payload = {
-            'title': title,
-            'background': background,
-            'language': data.get('language', 'zh'),
-            'min_length': data.get('min_length', 150),
-            'max_length': data.get('max_length', 500),
-        }
+        if not starter:
+            return jsonify({'error': '开篇内容(starter)必填'}), 400
+        segs = [s for s in initial_segments if isinstance(s, str) and s.strip()] if initial_segments else []
+        if story_pack and isinstance(story_pack, dict):
+            payload = {
+                'title': title,
+                'background': background,
+                'starter': starter,
+                'language': data.get('language', 'zh'),
+                'min_length': data.get('min_length', 150),
+                'max_length': data.get('max_length', 500),
+                'story_pack': story_pack,
+            }
+        else:
+            if len(segs) < 3 or len(segs) > 5:
+                return jsonify({'error': 'initial_segments 须包含 3-5 个片段'}), 400
+            payload = {
+                'title': title,
+                'background': background,
+                'starter': starter,
+                'initial_segments': segs[:5],
+                'language': data.get('language', 'zh'),
+                'min_length': data.get('min_length', 150),
+                'max_length': data.get('max_length', 500),
+            }
         if style_rules:
             payload['style_rules'] = style_rules
-        if starter:
-            payload['starter'] = starter
-        if initial_segments and isinstance(initial_segments, list):
-            payload['initial_segments'] = initial_segments[:5]
-        if story_pack and isinstance(story_pack, dict):
-            payload['story_pack'] = story_pack
 
         resp = requests.post(f'{base_url}/stories', json=payload, headers=headers, timeout=60)
         
@@ -324,9 +346,7 @@ def _api_create_story():
             result = resp.json()
             story = result.get('data', result)
             return jsonify({'story': story, 'message': '故事创建成功'})
-        err_body = resp.json() if resp.headers.get('content-type', '').startswith('application/json') else {}
-        msg = err_body.get('error', {}).get('message', resp.text[:200])
-        return jsonify({'error': msg}), resp.status_code if resp.status_code < 500 else 500
+        return jsonify({'error': _parse_api_error(resp)}), resp.status_code if resp.status_code < 500 else 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -357,9 +377,7 @@ def api_story_branches(story_id):
             payload['parent_branch_id'] = parent_branch_id
         resp = requests.post(f'{base_url}/stories/{story_id}/branches', json=payload, headers=headers, timeout=120)
         if resp.status_code not in (200, 201):
-            err_body = resp.json() if resp.headers.get('content-type', '').startswith('application/json') else {}
-            msg = err_body.get('error', {}).get('message', resp.text[:200])
-            return jsonify({'error': msg}), resp.status_code if resp.status_code < 500 else 500
+            return jsonify({'error': _parse_api_error(resp)}), resp.status_code if resp.status_code < 500 else 500
         result = resp.json()
         branch_data = result.get('data', result)
         branch_id = branch_data.get('id') if isinstance(branch_data, dict) else None
@@ -427,9 +445,7 @@ def api_branch_segments(branch_id):
         if resp.status_code in (200, 201):
             result = resp.json()
             return jsonify({'message': '续写提交成功', 'data': result.get('data', result)})
-        err_body = resp.json() if resp.headers.get('content-type', '').startswith('application/json') else {}
-        msg = err_body.get('error', {}).get('message', resp.text[:200])
-        return jsonify({'error': msg}), resp.status_code if resp.status_code < 500 else 500
+        return jsonify({'error': _parse_api_error(resp)}), resp.status_code if resp.status_code < 500 else 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -438,6 +454,42 @@ def api_branch_segments(branch_id):
 def api_branch_full_story(branch_id):
     """获取分支完整故事（兼容旧前端，内部使用 GET /segments 实现，符合 API_REFERENCE）"""
     return api_branch_segments(branch_id)
+
+
+@app.route('/api/branches/<branch_id>/summary', methods=['GET', 'PATCH'])
+def api_branch_summary(branch_id):
+    """GET: 获取分支摘要 | PATCH: 更新当前进展摘要（用于 inkpath.cc 分支所有者）"""
+    base_url, headers, err = _get_inkpath_headers()
+    if err:
+        return jsonify({'error': err}), 400
+    import requests
+
+    if request.method == 'PATCH':
+        data = request.get_json() or {}
+        summary = (data.get('summary') or '').strip()
+        if not summary:
+            return jsonify({'error': '摘要内容不能为空'}), 400
+        resp = requests.patch(
+            f'{base_url}/branches/{branch_id}/summary',
+            json={'summary': summary},
+            headers=headers,
+            timeout=60
+        )
+        if resp.status_code in (200, 201):
+            result = resp.json()
+            return jsonify({'message': '摘要更新成功', 'data': result.get('data', result)})
+        return jsonify({'error': _parse_api_error(resp)}), resp.status_code if resp.status_code < 500 else 500
+
+    force_refresh = request.args.get('force_refresh', 'false')
+    resp = requests.get(
+        f'{base_url}/branches/{branch_id}/summary?force_refresh={force_refresh}',
+        headers=headers,
+        timeout=30
+    )
+    if resp.status_code != 200:
+        return jsonify({'error': _parse_api_error(resp)}), 500
+    data = resp.json()
+    return jsonify(data.get('data', data))
 
 
 def create_templates():

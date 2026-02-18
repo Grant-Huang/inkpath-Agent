@@ -105,8 +105,16 @@
                         <input id="new-story-style" type="text" placeholder="如：克制、冷峻、悬念" class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none">
                     </div>
                     <div>
-                        <label class="block text-sm text-gray-400 mb-1">开篇内容 (可选，会自动创建为第一个片段)</label>
-                        <textarea id="new-story-starter" rows="3" placeholder="故事开篇..." class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none resize-none"></textarea>
+                        <label class="block text-sm text-gray-400 mb-1">开篇内容 (必填)</label>
+                        <textarea id="new-story-starter" rows="3" placeholder="故事开篇，作为第一个片段..." class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">初始续写 (必填，3-5 个片段)</label>
+                        <textarea id="new-story-seg1" rows="2" placeholder="片段 1..." class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none resize-none mb-2"></textarea>
+                        <textarea id="new-story-seg2" rows="2" placeholder="片段 2..." class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none resize-none mb-2"></textarea>
+                        <textarea id="new-story-seg3" rows="2" placeholder="片段 3..." class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none resize-none mb-2"></textarea>
+                        <textarea id="new-story-seg4" rows="2" placeholder="片段 4 (可选)..." class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none resize-none mb-2"></textarea>
+                        <textarea id="new-story-seg5" rows="2" placeholder="片段 5 (可选)..." class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none resize-none"></textarea>
                     </div>
                 </div>
                 <div class="flex justify-end gap-2 mt-6">
@@ -121,6 +129,15 @@
             <div class="bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <h3 class="text-xl font-medium mb-2">续写故事</h3>
                 <p class="text-sm text-gray-400 mb-4" id="continue-branch-title">分支</p>
+                <div class="mb-4">
+                    <label class="block text-sm text-gray-400 mb-2">当前进展摘要</label>
+                    <div id="continue-summary" class="h-20 overflow-y-auto p-3 bg-gray-900 rounded-lg text-sm text-gray-300 mb-2">加载中...</div>
+                    <details class="mb-2">
+                        <summary class="text-sm text-blue-400 cursor-pointer hover:underline">编写/更新当前进展摘要</summary>
+                        <textarea id="continue-summary-edit" rows="4" placeholder="300-800 字，覆盖核心情节、关键角色、未解悬念..." class="w-full px-4 py-2 mt-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 outline-none resize-none text-sm"></textarea>
+                        <button onclick="submitSummary()" class="mt-2 px-3 py-1.5 bg-amber-600 rounded-lg hover:bg-amber-700 text-sm">更新摘要</button>
+                    </details>
+                </div>
                 <div class="mb-4">
                     <label class="block text-sm text-gray-400 mb-2">前文摘要</label>
                     <div id="continue-preview" class="h-32 overflow-y-auto p-3 bg-gray-900 rounded-lg text-sm text-gray-300"></div>
@@ -280,6 +297,7 @@
             document.getElementById('new-story-background').value = '';
             document.getElementById('new-story-style').value = '';
             document.getElementById('new-story-starter').value = '';
+            for (let i = 1; i <= 5; i++) document.getElementById('new-story-seg' + i).value = '';
             document.getElementById('create-story-modal').classList.remove('hidden');
             document.getElementById('create-story-modal').classList.add('flex');
         }
@@ -292,10 +310,12 @@
             const background = document.getElementById('new-story-background').value.trim();
             const style_rules = document.getElementById('new-story-style').value.trim();
             const starter = document.getElementById('new-story-starter').value.trim();
+            const initial_segments = [1,2,3,4,5].map(i => document.getElementById('new-story-seg' + i).value.trim()).filter(s => s);
             if (!title) { alert('请输入标题'); return; }
             if (!background || background.length < 10) { alert('背景至少 10 字'); return; }
-            const payload = { title, background, style_rules };
-            if (starter) payload.starter = starter;
+            if (!starter) { alert('开篇内容必填'); return; }
+            if (initial_segments.length < 3 || initial_segments.length > 5) { alert('初始续写须 3-5 个片段'); return; }
+            const payload = { title, background, style_rules, starter, initial_segments };
             const result = await api('/api/stories', {
                 method: 'POST',
                 body: JSON.stringify(payload)
@@ -326,6 +346,10 @@
             const preview = segments.slice(-3).map(s => s.content || '').join('\n\n---\n\n');
             document.getElementById('continue-branch-title').textContent = '分支: ' + continueCtx.branchTitle;
             document.getElementById('continue-preview').textContent = preview || '（暂无前文，此为开篇）';
+            const summaryRes = await api('/api/branches/' + branch.id + '/summary');
+            const summary = (summaryRes && summaryRes.summary) || summaryRes?.data?.summary || '';
+            document.getElementById('continue-summary').textContent = summary || '（暂无摘要，可点击下方编写）';
+            document.getElementById('continue-summary-edit').value = summary || '';
             document.getElementById('continue-length-hint').textContent = continueCtx.isStarter ? '开篇内容（建议 300 字以上）' : '续写内容 (150-500 字)';
             document.getElementById('continue-length-range').textContent = continueCtx.isStarter ? '字' : '/ 150-500 字';
             document.getElementById('continue-content').value = '';
@@ -370,6 +394,22 @@
             statusEl.textContent = '续写提交成功';
             statusEl.className = 'text-green-400';
             setTimeout(() => { closeContinueModal(); loadStories(); loadHome(); }, 800);
+        }
+
+        async function submitSummary() {
+            if (!continueCtx.branchId) return;
+            const summary = document.getElementById('continue-summary-edit').value.trim();
+            if (!summary) { alert('请输入摘要内容'); return; }
+            const res = await api('/api/branches/' + continueCtx.branchId + '/summary', {
+                method: 'PATCH',
+                body: JSON.stringify({ summary })
+            });
+            if (res.error) {
+                alert('更新失败: ' + res.error);
+                return;
+            }
+            document.getElementById('continue-summary').textContent = summary;
+            alert('摘要更新成功');
         }
         
         function startRefresh() {
